@@ -86,8 +86,18 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
   defaultSize: { width: number; height: number };
   /** プロパティパネルを自動生成するためのスキーマ */
   propertySchema: PropertyField[];
-  /** ローカル座標系でのSVG描画 */
-  Renderer: ComponentType<{ props: P }>;
+  /**
+   * ローカル座標系でのSVG描画。
+   * ラベル付きオブジェクトは transform(回転の打ち消し用)や objectId
+   * (ラベルドラッグの当たり判定用)、interactive(操作可否)を受け取る。
+   * 書き出し・プレビューでは interactive=false で呼ばれる。
+   */
+  Renderer: ComponentType<{
+    props: P;
+    transform?: Transform;
+    objectId?: string;
+    interactive?: boolean;
+  }>;
   /** ローカル座標でのバウンディングボックス */
   getBounds(props: P): Rect;
   /** ローカル座標でのスナップ位置(端点・中心など) */
@@ -109,6 +119,28 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
    * 解決できたアンカーが不足する場合は現状維持({ props, transform })を返すこと。
    */
   applyRefs?(props: P, resolved: ResolvedRef[], transform: Transform): EndpointEditResult<P>;
+  /**
+   * 拘束されたオブジェクトの本体ドラッグを、平行オフセット等のprops変更として解釈する。
+   * 長さマークが「測定線分と平行なオフセット」をドラッグで変えるのに使う。
+   * これを持つ ref 付きオブジェクトは、本体ドラッグが移動ではなくこの更新になる。
+   */
+  dragOffset?(props: P, transform: Transform, world: Point): P;
+  /**
+   * 円拘束された線の「接点」のローカル位置。接続点ハンドルの表示位置に使う。
+   * 既定では中点(0,0)だが、片側長さ変更で接点が中点からずれる。
+   */
+  getAnchorPoint?(props: P): Point;
+  /**
+   * 円拘束された線で端点をドラッグしたときの props 更新。
+   * 接点と反対側の端点を固定したまま、ドラッグした端点までの長さ(片側)だけを変える。
+   */
+  dragEndpointConstrained?(props: P, transform: Transform, end: 0 | 1, world: Point): P;
+  /**
+   * ラベルを持つオブジェクト用。ラベルをワールド上でドラッグしたときに、
+   * ラベルのオフセット(labelDx/labelDy)を更新した props を返す。
+   * これを定義すると、選択中オブジェクトのラベルをドラッグで動かせる。
+   */
+  moveLabel?(props: P, transform: Transform, fromWorld: Point, toWorld: Point): P;
   /**
    * 拡大縮小を transform ではなく props へ反映する箱型オブジェクト用。
    * これを定義したプラグインは transform の scale を常に 1 に保ち、

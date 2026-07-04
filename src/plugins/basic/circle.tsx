@@ -1,6 +1,7 @@
 import type { PhysicsObjectPlugin } from '../../core/plugin';
 import { CenterMark } from './CenterMark';
 import { PatternDefs } from './PatternDefs';
+import { centerDefaults, centerFields } from './centerFields';
 import { fillPatternField, resolveFill, type FillPattern } from './fillPattern';
 
 interface CircleProps {
@@ -10,6 +11,8 @@ interface CircleProps {
   strokeWidth: number;
   fillPattern: FillPattern;
   showCenter: boolean;
+  centerStyle: 'cross' | 'dot';
+  centerSize: number;
 }
 
 export const circlePlugin: PhysicsObjectPlugin<CircleProps> = {
@@ -28,7 +31,7 @@ export const circlePlugin: PhysicsObjectPlugin<CircleProps> = {
     stroke: '#333333',
     strokeWidth: 2,
     fillPattern: 'none',
-    showCenter: false,
+    ...centerDefaults,
   },
   defaultSize: { width: 80, height: 80 },
   propertySchema: [
@@ -37,7 +40,7 @@ export const circlePlugin: PhysicsObjectPlugin<CircleProps> = {
     { key: 'stroke', label: '線色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0, step: 0.5 },
     fillPatternField,
-    { key: 'showCenter', label: '重心を表示', type: 'boolean' },
+    ...centerFields,
   ],
   Renderer: ({ props }) => (
     <g>
@@ -48,7 +51,9 @@ export const circlePlugin: PhysicsObjectPlugin<CircleProps> = {
         stroke={props.stroke}
         strokeWidth={props.strokeWidth}
       />
-      {props.showCenter && <CenterMark color={props.stroke} />}
+      {props.showCenter && (
+        <CenterMark color={props.stroke} style={props.centerStyle} size={props.centerSize} />
+      )}
     </g>
   ),
   getBounds: (props) => ({

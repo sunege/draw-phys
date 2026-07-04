@@ -15,7 +15,12 @@ export function ObjectsLayer() {
         if (!plugin) return null;
         return (
           <g key={obj.id} data-object-id={obj.id} transform={transformToString(obj.transform)}>
-            <plugin.Renderer props={obj.props} />
+            <plugin.Renderer
+              props={obj.props}
+              transform={obj.transform}
+              objectId={obj.id}
+              interactive
+            />
           </g>
         );
       })}

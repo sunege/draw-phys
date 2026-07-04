@@ -1,4 +1,4 @@
-import { angleOfVector } from '../../core/geometry';
+import { angleOfVector, localToWorld } from '../../core/geometry';
 import type { PhysicsObjectPlugin } from '../../core/plugin';
 import { hitStrokeWidth, lineFromDrag, segmentEndpoints, segmentFromEndpoints } from './lineUtils';
 
@@ -7,6 +7,11 @@ interface LineProps {
   stroke: string;
   strokeWidth: number;
   lineStyle: 'solid' | 'dashed' | 'dotted';
+  /**
+   * 接線拘束時の、線中心から接点までの符号付き距離(線方向)。
+   * 0(既定)は接点=中点。端点ドラッグで片側長さを変えるとずれる。プラグインの内部状態。
+   */
+  tangentOffset?: number;
 }
 
 function dashArray(props: LineProps): string | undefined {
@@ -87,20 +92,37 @@ export const linePlugin: PhysicsObjectPlugin<LineProps> = {
     return { props: { ...props, length }, transform };
   },
   applyRefs(props, resolved, transform) {
-    // 接線拘束: 中点を円周上のアンカーに一致させ、接線方向へ回転する(長さはpropsのまま)
+    // 接線拘束: 接点(局所 tangentOffset,0)を円周上のアンカーに一致させ、接線方向へ回転する
     const anchor = resolved.find((r) => r.role === 'anchor');
     if (!anchor?.tangent) return { props, transform };
+    const off = props.tangentOffset ?? 0;
     return {
       props,
       transform: {
         ...transform,
-        x: anchor.point.x,
-        y: anchor.point.y,
+        x: anchor.point.x - anchor.tangent.x * off,
+        y: anchor.point.y - anchor.tangent.y * off,
         rotation: angleOfVector(anchor.tangent),
         scaleX: 1,
         scaleY: 1,
       },
     };
+  },
+  getAnchorPoint: (props) => ({ x: props.tangentOffset ?? 0, y: 0 }),
+  dragEndpointConstrained(props, transform, end, world) {
+    // 接点と反対側の端点を固定し、ドラッグ端点までの片側長さのみ変更する
+    const off = props.tangentOffset ?? 0;
+    const half = props.length / 2;
+    const contact = localToWorld({ x: off, y: 0 }, transform);
+    const rad = (transform.rotation * Math.PI) / 180;
+    const da = { x: Math.cos(rad), y: Math.sin(rad) };
+    // 各端点の接点からの符号付き距離
+    let s0 = -half - off;
+    let s1 = half - off;
+    const s = (world.x - contact.x) * da.x + (world.y - contact.y) * da.y;
+    if (end === 1) s1 = Math.max(s, s0 + 1);
+    else s0 = Math.min(s, s1 - 1);
+    return { ...props, length: s1 - s0, tangentOffset: -(s0 + s1) / 2 };
   },
   capabilities: { rotatable: false, scalable: 'none' },
   placement: 'drag-line',

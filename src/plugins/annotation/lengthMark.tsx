@@ -1,10 +1,19 @@
+import { localToWorld, unionRects } from '../../core/geometry';
 import type { PhysicsObjectPlugin } from '../../core/plugin';
 import { buildKatexExportCss } from '../basic/latex';
 import { lineFromDrag, segmentEndpoints, segmentFromEndpoints } from '../basic/lineUtils';
+import {
+  labelBgField,
+  labelDecoDefaults,
+  labelLocalBounds,
+  moveLabelOffset,
+  type LabelContent,
+  type LabelDecoProps,
+} from '../basic/objectLabel';
 import { MarkLabel, type LabelMode } from './MarkLabel';
 import { lengthMarkFromResolved } from './lengthMarkMath';
 
-interface LengthMarkProps {
+interface LengthMarkProps extends LabelDecoProps {
   length: number;
   /** extension: 両端に垂直な補助線 / arc: 両端から弧が飛び出す */
   style: 'extension' | 'arc';
@@ -12,6 +21,11 @@ interface LengthMarkProps {
   latex: string;
   /** ラベルの軸からの距離 */
   offset: number;
+  /**
+   * 測定線分からの垂直オフセット(バインド時に平行にずらす距離)。
+   * 0以外のとき、測定点(局所 y=-perpOffset)と寸法線(y=0)を結ぶ点線の補助線を描く。
+   */
+  perpOffset: number;
   arrowSize: number;
   capSize: number;
   fontSize: number;
@@ -27,6 +41,15 @@ function arrowHead(tipX: number, dir: 1 | -1, size: number): string {
   const bx = tipX - dir * size;
   const h = size * 0.45;
   return `M ${tipX} 0 L ${bx} ${-h} L ${bx} ${h} Z`;
+}
+
+/** ラベル表示内容(value は実測長のテキスト) */
+function markContent(props: LengthMarkProps): LabelContent {
+  return {
+    mode: props.labelMode === 'value' ? 'text' : props.labelMode,
+    text: props.length.toFixed(Math.max(0, props.decimals)),
+    latex: props.latex,
+  };
 }
 
 function endCap(x: number, style: 'extension' | 'arc', cap: number, dir: 1 | -1): string {
@@ -56,6 +79,7 @@ export const lengthMarkPlugin: PhysicsObjectPlugin<LengthMarkProps> = {
     labelMode: 'value',
     latex: 'L',
     offset: 16,
+    perpOffset: 0,
     arrowSize: 9,
     capSize: 7,
     fontSize: 16,
@@ -63,6 +87,7 @@ export const lengthMarkPlugin: PhysicsObjectPlugin<LengthMarkProps> = {
     measureMode: 'radius',
     stroke: '#333333',
     strokeWidth: 1.5,
+    ...labelDecoDefaults,
   },
   defaultSize: { width: 100, height: 40 },
   propertySchema: [
@@ -97,18 +122,45 @@ export const lengthMarkPlugin: PhysicsObjectPlugin<LengthMarkProps> = {
       ],
     },
     { key: 'offset', label: 'ラベル位置', type: 'number', min: 0, step: 2 },
+    { key: 'perpOffset', label: 'オフセット', type: 'number', step: 2 },
     { key: 'arrowSize', label: '矢印サイズ', type: 'number', min: 1, step: 1 },
     { key: 'capSize', label: '端の大きさ', type: 'number', min: 1, step: 1 },
     { key: 'fontSize', label: 'ラベルサイズ', type: 'number', min: 6, step: 1 },
     { key: 'decimals', label: '小数桁', type: 'number', min: 0, max: 3, step: 1 },
+    labelBgField,
     { key: 'stroke', label: '線色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0.5, step: 0.5 },
   ],
-  Renderer: ({ props }) => {
+  Renderer: ({ props, transform, objectId, interactive }) => {
     const half = props.length / 2;
     const { stroke, strokeWidth, arrowSize, capSize, style } = props;
+    const po = props.perpOffset ?? 0;
+    const dash = `${strokeWidth * 2} ${strokeWidth * 2}`;
     return (
       <g>
+        {po !== 0 && (
+          <>
+            {/* 測定点(y=-po)から寸法線(y=0)への点線補助線 */}
+            <line
+              x1={-half}
+              y1={-po}
+              x2={-half}
+              y2={0}
+              stroke={stroke}
+              strokeWidth={strokeWidth}
+              strokeDasharray={dash}
+            />
+            <line
+              x1={half}
+              y1={-po}
+              x2={half}
+              y2={0}
+              stroke={stroke}
+              strokeWidth={strokeWidth}
+              strokeDasharray={dash}
+            />
+          </>
+        )}
         <path d={endCap(-half, style, capSize, -1)} fill="none" stroke={stroke} strokeWidth={strokeWidth} />
         <path d={endCap(half, style, capSize, 1)} fill="none" stroke={stroke} strokeWidth={strokeWidth} />
         <line x1={-half} y1={0} x2={half} y2={0} stroke={stroke} strokeWidth={strokeWidth} />
@@ -117,20 +169,34 @@ export const lengthMarkPlugin: PhysicsObjectPlugin<LengthMarkProps> = {
         <MarkLabel
           x={0}
           y={-props.offset}
+          dx={props.labelDx}
+          dy={props.labelDy}
+          rotation={transform?.rotation ?? 0}
           mode={props.labelMode}
           text={props.length.toFixed(Math.max(0, props.decimals))}
           latex={props.latex}
           fontSize={props.fontSize}
           color={stroke}
+          bg={props.labelBg}
+          objectId={objectId}
+          interactive={interactive}
         />
       </g>
     );
   },
   getBounds: (props) => {
     const half = props.length / 2;
-    const top = props.offset + props.fontSize + 2;
-    const bottom = props.capSize + 2;
-    return { x: -half - 2, y: -top, width: props.length + 4, height: top + bottom };
+    const po = props.perpOffset ?? 0;
+    const yTop = Math.min(-props.capSize, -po, -(props.offset + props.fontSize));
+    const yBot = Math.max(props.capSize, -po);
+    const shape = { x: -half - 2, y: yTop, width: props.length + 4, height: yBot - yTop };
+    const label = labelLocalBounds(
+      { x: 0, y: -props.offset },
+      props,
+      markContent(props),
+      props.fontSize,
+    );
+    return label ? unionRects([shape, label])! : shape;
   },
   getSnapPoints: (props) => segmentEndpoints(props.length).concat([{ x: 0, y: 0 }]),
   getEndpoints: (props) => segmentEndpoints(props.length),
@@ -139,10 +205,25 @@ export const lengthMarkPlugin: PhysicsObjectPlugin<LengthMarkProps> = {
     return { props: { ...props, length }, transform };
   },
   applyRefs: (props, resolved, transform) => {
-    const r = lengthMarkFromResolved(resolved, props.measureMode);
+    const r = lengthMarkFromResolved(resolved, props.measureMode, props.perpOffset ?? 0);
     if (!r) return { props, transform };
     return { props: { ...props, length: r.length }, transform: r.transform };
   },
+  dragOffset(props, transform, world) {
+    // 測定線分(局所 y=-perpOffset)を再構成し、ポインタの垂直距離を新しい perpOffset にする
+    const half = props.length / 2;
+    const po = props.perpOffset ?? 0;
+    const a = localToWorld({ x: -half, y: -po }, transform);
+    const b = localToWorld({ x: half, y: -po }, transform);
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    const nx = -(b.y - a.y) / len;
+    const ny = (b.x - a.x) / len;
+    const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2;
+    const perpOffset = (world.x - mx) * nx + (world.y - my) * ny;
+    return { ...props, perpOffset };
+  },
+  moveLabel: moveLabelOffset,
   capabilities: { rotatable: false, scalable: 'none' },
   placement: 'drag-line',
   createFromDrag(start, end) {

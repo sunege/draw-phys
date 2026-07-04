@@ -1,16 +1,36 @@
+import { unionRects } from '../../core/geometry';
 import type { PhysicsObjectPlugin } from '../../core/plugin';
+import { ObjectLabel } from '../basic/LabelView';
 import { PatternDefs } from '../basic/PatternDefs';
 import { fillPatternField, resolveFill, type FillPattern } from '../basic/fillPattern';
+import {
+  labelBgField,
+  labelDecoDefaults,
+  labelLocalBounds,
+  moveLabelOffset,
+  type LabelContent,
+  type LabelDecoProps,
+} from '../basic/objectLabel';
 
-interface BlockProps {
+interface BlockProps extends LabelDecoProps {
   width: number;
   height: number;
   fill: string;
   stroke: string;
   strokeWidth: number;
   label: string;
+  /** ラベルの表示種別 */
+  labelMode: LabelContent['mode'];
+  /** LaTeX モードのときの数式 */
+  labelLatex: string;
   fontSize: number;
   fillPattern: FillPattern;
+}
+
+const ORIGIN = { x: 0, y: 0 };
+
+function blockLabel(props: BlockProps): LabelContent {
+  return { mode: props.labelMode, text: props.label, latex: props.labelLatex };
 }
 
 export const blockPlugin: PhysicsObjectPlugin<BlockProps> = {
@@ -33,8 +53,11 @@ export const blockPlugin: PhysicsObjectPlugin<BlockProps> = {
     stroke: '#333333',
     strokeWidth: 2,
     label: 'm',
+    labelMode: 'text',
+    labelLatex: 'm',
     fontSize: 20,
     fillPattern: 'none',
+    ...labelDecoDefaults,
   },
   defaultSize: { width: 80, height: 60 },
   propertySchema: [
@@ -44,10 +67,22 @@ export const blockPlugin: PhysicsObjectPlugin<BlockProps> = {
     { key: 'stroke', label: '線色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0, step: 0.5 },
     fillPatternField,
-    { key: 'label', label: 'ラベル', type: 'text' },
+    {
+      key: 'labelMode',
+      label: 'ラベル',
+      type: 'select',
+      options: [
+        { value: 'text', label: 'テキスト' },
+        { value: 'latex', label: 'LaTeX' },
+        { value: 'none', label: 'なし' },
+      ],
+    },
+    { key: 'label', label: 'ラベル文字', type: 'text' },
+    { key: 'labelLatex', label: 'LaTeX式', type: 'text' },
     { key: 'fontSize', label: 'ラベルサイズ', type: 'number', min: 6, step: 2 },
+    labelBgField,
   ],
-  Renderer: ({ props }) => (
+  Renderer: ({ props, transform, objectId, interactive }) => (
     <g>
       <PatternDefs props={props} />
       <rect
@@ -59,28 +94,32 @@ export const blockPlugin: PhysicsObjectPlugin<BlockProps> = {
         stroke={props.stroke}
         strokeWidth={props.strokeWidth}
       />
-      {props.label && (
-        <text
-          x={0}
-          y={0}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fontSize={props.fontSize}
-          fontStyle="italic"
-          fontFamily='"Times New Roman", serif'
-          fill={props.stroke}
-        >
-          {props.label}
-        </text>
-      )}
+      <ObjectLabel
+        anchor={ORIGIN}
+        dx={props.labelDx}
+        dy={props.labelDy}
+        rotation={transform?.rotation ?? 0}
+        content={blockLabel(props)}
+        fontSize={props.fontSize}
+        color={props.stroke}
+        bg={props.labelBg}
+        italic
+        fontFamily='"Times New Roman", serif'
+        objectId={objectId}
+        interactive={interactive}
+      />
     </g>
   ),
-  getBounds: (props) => ({
-    x: -props.width / 2,
-    y: -props.height / 2,
-    width: props.width,
-    height: props.height,
-  }),
+  getBounds: (props) => {
+    const shape = {
+      x: -props.width / 2,
+      y: -props.height / 2,
+      width: props.width,
+      height: props.height,
+    };
+    const label = labelLocalBounds(ORIGIN, props, blockLabel(props), props.fontSize);
+    return label ? unionRects([shape, label])! : shape;
+  },
   getSnapPoints: (props) => {
     const hw = props.width / 2;
     const hh = props.height / 2;
@@ -111,6 +150,7 @@ export const blockPlugin: PhysicsObjectPlugin<BlockProps> = {
     width: props.width * fx,
     height: props.height * fy,
   }),
+  moveLabel: moveLabelOffset,
   capabilities: { rotatable: true, scalable: 'both' },
   placement: 'click',
 };

@@ -52,9 +52,28 @@ type DragState =
       before: Transform;
       beforeProps: Record<string, unknown>;
       plugin: AnyPlugin;
+      /** 円拘束された線の端点(片側長さ変更モード) */
+      constrained: boolean;
       moved: boolean;
     }
   | { mode: 'anchor'; id: string; targetId: string; beforeRefs: ObjectRef[]; moved: boolean }
+  | {
+      mode: 'labelDrag';
+      id: string;
+      before: Transform;
+      beforeProps: Record<string, unknown>;
+      plugin: AnyPlugin;
+      startWorld: Point;
+      moved: boolean;
+    }
+  | {
+      mode: 'markOffset';
+      id: string;
+      before: Transform;
+      beforeProps: Record<string, unknown>;
+      plugin: AnyPlugin;
+      moved: boolean;
+    }
   | { mode: 'marquee'; start: Point; additive: boolean }
   | { mode: 'place-line'; plugin: AnyPlugin; start: Point };
 
@@ -399,6 +418,9 @@ export function CanvasStage() {
           }
         } else if (handleKind.startsWith('endpoint:')) {
           const end = Number(handleKind.slice('endpoint:'.length)) as 0 | 1;
+          const constrained = !!(
+            obj.refs?.some((r) => r.kind === 'circle') && plugin.dragEndpointConstrained
+          );
           dragRef.current = {
             mode: 'endpoint',
             id: obj.id,
@@ -406,6 +428,7 @@ export function CanvasStage() {
             before: obj.transform,
             beforeProps: obj.props,
             plugin,
+            constrained,
             moved: false,
           };
         } else {
@@ -434,6 +457,26 @@ export function CanvasStage() {
       }
     }
 
+    // 選択中オブジェクトのラベルをドラッグ: 本体移動ではなくラベル位置の変更にする
+    const labelEl = (e.target as Element).closest('[data-object-label]');
+    const labelId = labelEl?.getAttribute('data-object-label');
+    if (labelId && doc.selection.length === 1 && doc.selection[0] === labelId) {
+      const obj = doc.objects[labelId];
+      const plugin = obj ? pluginRegistry.get(obj.pluginId) : undefined;
+      if (obj && !obj.locked && plugin?.moveLabel) {
+        dragRef.current = {
+          mode: 'labelDrag',
+          id: labelId,
+          before: obj.transform,
+          beforeProps: obj.props,
+          plugin,
+          startWorld: world,
+          moved: false,
+        };
+        return;
+      }
+    }
+
     // オブジェクトのクリック選択+移動ドラッグ開始
     const hit = (e.target as Element).closest('[data-object-id]');
     const hitId = hit?.getAttribute('data-object-id');
@@ -448,6 +491,21 @@ export function CanvasStage() {
 
     if (e.shiftKey) {
       doc.toggleSelection(hitObj.id);
+      return;
+    }
+
+    // 拘束された長さマーク等: 本体ドラッグは移動ではなく平行オフセットの変更にする
+    const hitPlugin = pluginRegistry.get(hitObj.pluginId);
+    if (hitObj.refs && hitObj.refs.length > 0 && hitPlugin?.dragOffset) {
+      if (!doc.selection.includes(hitObj.id)) doc.setSelection([hitObj.id]);
+      dragRef.current = {
+        mode: 'markOffset',
+        id: hitObj.id,
+        before: hitObj.transform,
+        beforeProps: hitObj.props,
+        plugin: hitPlugin,
+        moved: false,
+      };
       return;
     }
 
@@ -551,6 +609,14 @@ export function CanvasStage() {
       return;
     }
 
+    if (drag.mode === 'endpoint' && drag.constrained && drag.plugin.dragEndpointConstrained) {
+      // 接線拘束された線: 片側長さのみ変更(接点・反対端は固定)
+      const props = drag.plugin.dragEndpointConstrained(drag.beforeProps, drag.before, drag.end, world);
+      doc.setObjectTransient(drag.id, { props });
+      drag.moved = true;
+      return;
+    }
+
     if (drag.mode === 'endpoint' && drag.plugin.getEndpoints && drag.plugin.setFromEndpoints) {
       const snapped = snapEndpoint({
         point: world,
@@ -587,6 +653,20 @@ export function CanvasStage() {
           { role: 'anchor', targetId: drag.targetId, kind: 'circle', t },
         ]);
       }
+      drag.moved = true;
+      return;
+    }
+
+    if (drag.mode === 'labelDrag' && drag.plugin.moveLabel) {
+      const props = drag.plugin.moveLabel(drag.beforeProps, drag.before, drag.startWorld, world);
+      doc.setObjectTransient(drag.id, { props });
+      drag.moved = true;
+      return;
+    }
+
+    if (drag.mode === 'markOffset' && drag.plugin.dragOffset) {
+      const props = drag.plugin.dragOffset(drag.beforeProps, drag.before, world);
+      doc.setObjectTransient(drag.id, { props });
       drag.moved = true;
       return;
     }
@@ -631,6 +711,9 @@ export function CanvasStage() {
       } else {
         doc.commitTransforms({ [drag.id]: drag.before });
       }
+    } else if (drag.mode === 'endpoint' && drag.moved && drag.constrained) {
+      // 接線拘束の片側長さ変更はバインドを作らずそのまま確定する
+      doc.commitObject(drag.id, { transform: drag.before, props: drag.beforeProps });
     } else if (drag.mode === 'endpoint' && drag.moved) {
       // applyRefs対応(長さマーク等)が対象へ吸着していれば、追従バインドを作成
       const { snapEnabled, gridSize, zoom } = useViewportStore.getState();
@@ -645,9 +728,18 @@ export function CanvasStage() {
       });
       if (drag.plugin.applyRefs && snapped.attach) {
         doc.setObjectRefs(drag.id, attachToRefs(snapped.attach));
+        // 測定対象と重ならないよう、既定の平行オフセットを与える(長さマーク等)
+        const bound = doc.objects[drag.id];
+        if (drag.plugin.dragOffset && bound && !bound.props.perpOffset) {
+          doc.updateProps(drag.id, { perpOffset: 30 });
+        }
       } else {
         doc.commitObject(drag.id, { transform: drag.before, props: drag.beforeProps });
       }
+    } else if (drag.mode === 'labelDrag' && drag.moved) {
+      doc.commitObject(drag.id, { transform: drag.before, props: drag.beforeProps });
+    } else if (drag.mode === 'markOffset' && drag.moved) {
+      doc.commitObject(drag.id, { transform: drag.before, props: drag.beforeProps });
     } else if (drag.mode === 'anchor' && drag.moved) {
       // 接続点スライドの確定: ベースを戻して1履歴エントリで記録する
       const target = doc.objects[drag.targetId];
@@ -725,7 +817,7 @@ export function CanvasStage() {
         <ObjectsLayer />
         {preview && (
           <g transform={transformToString(preview.transform)} opacity={0.5} pointerEvents="none">
-            <preview.plugin.Renderer props={preview.props} />
+            <preview.plugin.Renderer props={preview.props} transform={preview.transform} />
           </g>
         )}
         <SelectionOverlay />

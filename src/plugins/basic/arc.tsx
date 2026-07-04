@@ -1,6 +1,7 @@
 import type { PhysicsObjectPlugin } from '../../core/plugin';
 import type { Point, Rect } from '../../core/types';
 import { CenterMark } from './CenterMark';
+import { centerDefaults, centerFields } from './centerFields';
 
 interface ArcProps {
   radius: number;
@@ -12,6 +13,8 @@ interface ArcProps {
   strokeWidth: number;
   lineStyle: 'solid' | 'dashed' | 'dotted';
   showCenter: boolean;
+  centerStyle: 'cross' | 'dot';
+  centerSize: number;
 }
 
 const DEG = Math.PI / 180;
@@ -84,7 +87,7 @@ export const arcPlugin: PhysicsObjectPlugin<ArcProps> = {
     stroke: '#333333',
     strokeWidth: 2,
     lineStyle: 'solid',
-    showCenter: false,
+    ...centerDefaults,
   },
   defaultSize: { width: 100, height: 100 },
   propertySchema: [
@@ -103,7 +106,7 @@ export const arcPlugin: PhysicsObjectPlugin<ArcProps> = {
         { value: 'dotted', label: '点線' },
       ],
     },
-    { key: 'showCenter', label: '重心を表示', type: 'boolean' },
+    ...centerFields,
   ],
   Renderer: ({ props }) => (
     <g>
@@ -125,7 +128,9 @@ export const arcPlugin: PhysicsObjectPlugin<ArcProps> = {
           strokeDasharray={dashArray(props)}
         />
       )}
-      {props.showCenter && <CenterMark color={props.stroke} />}
+      {props.showCenter && (
+        <CenterMark color={props.stroke} style={props.centerStyle} size={props.centerSize} />
+      )}
     </g>
   ),
   getBounds: (props) => arcBounds(props.radius, props.startAngle, props.endAngle),

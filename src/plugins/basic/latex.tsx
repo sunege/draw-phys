@@ -7,6 +7,8 @@ interface LatexProps {
   formula: string;
   fontSize: number;
   color: string;
+  /** 背景を白で塗る(背後の図形と干渉して読みづらいときに使う) */
+  bg: boolean;
 }
 
 /**
@@ -100,35 +102,56 @@ export const latexPlugin: PhysicsObjectPlugin<LatexProps> = {
     formula: 'F = ma',
     fontSize: 24,
     color: '#333333',
+    bg: false,
   },
   defaultSize: { width: 100, height: 34 },
   propertySchema: [
     { key: 'formula', label: '数式', type: 'multiline' },
     { key: 'fontSize', label: 'サイズ', type: 'number', min: 6, step: 2 },
     { key: 'color', label: '色', type: 'color' },
+    { key: 'bg', label: '背景', type: 'boolean' },
   ],
   Renderer: ({ props }) => {
     const { width, height } = measureFormula(props.formula, props.fontSize);
+    const pad = props.fontSize * 0.2;
     return (
-      <foreignObject x={-width / 2} y={-height / 2} width={width} height={height}>
-        <div
-          // 単体SVGとして書き出したときにも正しく解釈されるよう名前空間を明示する
-          {...{ xmlns: 'http://www.w3.org/1999/xhtml' }}
-          style={{
-            fontSize: props.fontSize,
-            color: props.color,
-            whiteSpace: 'nowrap',
-            lineHeight: 1,
-          }}
-          // KaTeXが生成した信頼できるHTMLのみを流し込む
-          dangerouslySetInnerHTML={{ __html: renderHtml(props.formula) }}
-        />
-      </foreignObject>
+      <g>
+        {props.bg && (
+          <rect
+            x={-width / 2 - pad}
+            y={-height / 2 - pad}
+            width={width + pad * 2}
+            height={height + pad * 2}
+            rx={2}
+            fill="#ffffff"
+          />
+        )}
+        <foreignObject x={-width / 2} y={-height / 2} width={width} height={height}>
+          <div
+            // 単体SVGとして書き出したときにも正しく解釈されるよう名前空間を明示する
+            {...{ xmlns: 'http://www.w3.org/1999/xhtml' }}
+            style={{
+              fontSize: props.fontSize,
+              color: props.color,
+              whiteSpace: 'nowrap',
+              lineHeight: 1,
+            }}
+            // KaTeXが生成した信頼できるHTMLのみを流し込む
+            dangerouslySetInnerHTML={{ __html: renderHtml(props.formula) }}
+          />
+        </foreignObject>
+      </g>
     );
   },
   getBounds: (props): Rect => {
     const { width, height } = measureFormula(props.formula, props.fontSize);
-    return { x: -width / 2, y: -height / 2, width, height };
+    const pad = props.bg ? props.fontSize * 0.2 : 0;
+    return {
+      x: -width / 2 - pad,
+      y: -height / 2 - pad,
+      width: width + pad * 2,
+      height: height + pad * 2,
+    };
   },
   getSnapPoints: () => [{ x: 0, y: 0 }],
   applyScale: (props, fx) => ({ ...props, fontSize: props.fontSize * fx }),

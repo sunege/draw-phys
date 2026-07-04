@@ -39,4 +39,16 @@ describe('lengthMarkFromResolved', () => {
   it('参照不足ならnull', () => {
     expect(lengthMarkFromResolved([{ role: 'p0', point: { x: 0, y: 0 } }], 'radius')).toBeNull();
   });
+
+  it('perpOffsetで測定線分と平行に垂直オフセットする', () => {
+    // 水平線分(0,0)-(100,0)。法線は+y方向((-dy,dx)=(0,1))。offset=20で中心が(50,20)
+    const resolved: ResolvedRef[] = [
+      { role: 'p0', point: { x: 0, y: 0 } },
+      { role: 'p1', point: { x: 100, y: 0 } },
+    ];
+    const r = lengthMarkFromResolved(resolved, 'radius', 20);
+    expect(r?.length).toBeCloseTo(100);
+    expect(r?.transform.x).toBeCloseTo(50);
+    expect(r?.transform.y).toBeCloseTo(20);
+  });
 });

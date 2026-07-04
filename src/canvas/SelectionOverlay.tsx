@@ -51,6 +51,10 @@ function SingleSelection({ obj, zoom }: { obj: SceneObject; zoom: number }) {
   const rotatable = plugin.capabilities?.rotatable ?? true;
   const rotHandleOffset = 20 / zoom;
   const centerX = box.x + box.width / 2;
+  // 円拘束された線の接点(ローカル位置)。接続点ハンドルと端点重なり判定に使う
+  const anchorLocal = obj.refs?.some((r) => r.kind === 'circle')
+    ? plugin.getAnchorPoint?.(obj.props) ?? { x: 0, y: 0 }
+    : null;
 
   return (
     <g transform={`translate(${t.x} ${t.y}) rotate(${t.rotation})`}>
@@ -102,26 +106,35 @@ function SingleSelection({ obj, zoom }: { obj: SceneObject; zoom: number }) {
             style={{ cursor: cursorFor(dir) }}
           />
         ))}
-      {/* 端点編集ハンドル(線・矢印・バネ・ベクトル・床など) */}
-      {plugin.getEndpoints?.(obj.props).map((p, i) => (
-        <circle
-          key={`ep${i}`}
-          data-handle={`endpoint:${i}`}
-          cx={p.x}
-          cy={p.y}
-          r={5.5 / zoom}
-          fill="#ffffff"
-          stroke={STROKE}
-          strokeWidth={1.5 / zoom}
-          style={{ cursor: 'move' }}
-        />
-      ))}
-      {/* 接続点ハンドル(接線拘束された線の中点。円周上をスライドする) */}
-      {obj.refs?.some((r) => r.kind === 'circle') && (
+      {/* 端点編集ハンドル(線・矢印・バネ・ベクトル・床など)。接点に重なる場合はずらして表示 */}
+      {plugin.getEndpoints?.(obj.props).map((p, i) => {
+        const overlap =
+          anchorLocal && Math.hypot(p.x - anchorLocal.x, p.y - anchorLocal.y) < 12 / zoom;
+        const hy = overlap ? p.y + 18 / zoom : p.y;
+        return (
+          <g key={`ep${i}`}>
+            {overlap && (
+              <line x1={p.x} y1={p.y} x2={p.x} y2={hy} stroke={STROKE} strokeWidth={1 / zoom} />
+            )}
+            <circle
+              data-handle={`endpoint:${i}`}
+              cx={p.x}
+              cy={hy}
+              r={5.5 / zoom}
+              fill="#ffffff"
+              stroke={STROKE}
+              strokeWidth={1.5 / zoom}
+              style={{ cursor: 'move' }}
+            />
+          </g>
+        );
+      })}
+      {/* 接続点ハンドル(接線拘束された線の接点。円周上をスライドする) */}
+      {anchorLocal && (
         <circle
           data-handle="anchor"
-          cx={0}
-          cy={0}
+          cx={anchorLocal.x}
+          cy={anchorLocal.y}
           r={6 / zoom}
           fill="#e0457b"
           stroke="#ffffff"

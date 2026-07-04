@@ -1,3 +1,4 @@
+import { labelDecoDefaults } from '../basic/objectLabel';
 import { makeVectorPlugin } from './vectorFactory';
 
 /** 力ベクトル(作用点付き) */
@@ -17,9 +18,12 @@ export const forceVectorPlugin = makeVectorPlugin({
     strokeWidth: 2.5,
     headSize: 14,
     label: 'F',
+    labelMode: 'text',
+    labelLatex: '\\vec{F}',
     fontSize: 18,
     labelPos: 'middle',
     showPoint: true,
+    ...labelDecoDefaults,
   },
   showPointOption: true,
 });

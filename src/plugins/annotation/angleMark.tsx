@@ -1,11 +1,19 @@
 import { identityTransform, type Point } from '../../core/types';
-import { pointOnCircleAtAngle } from '../../core/geometry';
+import { pointOnCircleAtAngle, unionRects } from '../../core/geometry';
 import type { PhysicsObjectPlugin } from '../../core/plugin';
 import { buildKatexExportCss } from '../basic/latex';
+import {
+  labelBgField,
+  labelDecoDefaults,
+  labelLocalBounds,
+  moveLabelOffset,
+  type LabelContent,
+  type LabelDecoProps,
+} from '../basic/objectLabel';
 import { MarkLabel, type LabelMode } from './MarkLabel';
 import { angleFromResolved, anglePropsFromPicks, normalizeSweep } from './angleMarkMath';
 
-interface AngleMarkProps {
+interface AngleMarkProps extends LabelDecoProps {
   /** 腕Aの向き(度)。頂点=局所原点 */
   startAngle: number;
   /** 腕Bの向き(度)。startAngleからの掃引側になす角の弧を描く */
@@ -40,6 +48,22 @@ function labelText(props: AngleMarkProps): string {
   return `${sweep.toFixed(Math.max(0, props.decimals))}°`;
 }
 
+/** ラベル基準位置(局所座標)。弧の中央角の外側に置く */
+function labelAnchor(props: AngleMarkProps): Point {
+  const sweep = normalizeSweep(props.endAngle - props.startAngle);
+  const midDeg = props.startAngle + sweep / 2;
+  const labelR = props.radius + props.fontSize * 0.9;
+  return pointOnCircleAtAngle(ORIGIN, labelR, midDeg);
+}
+
+function markContent(props: AngleMarkProps): LabelContent {
+  return {
+    mode: props.labelMode === 'value' ? 'text' : props.labelMode,
+    text: labelText(props),
+    latex: props.latex,
+  };
+}
+
 export const angleMarkPlugin: PhysicsObjectPlugin<AngleMarkProps> = {
   id: 'core.angleMark',
   version: 1,
@@ -64,6 +88,7 @@ export const angleMarkPlugin: PhysicsObjectPlugin<AngleMarkProps> = {
     latex: '\\theta',
     fontSize: 16,
     decimals: 0,
+    ...labelDecoDefaults,
   },
   defaultSize: { width: 64, height: 64 },
   propertySchema: [
@@ -93,12 +118,11 @@ export const angleMarkPlugin: PhysicsObjectPlugin<AngleMarkProps> = {
     { key: 'latex', label: 'LaTeX式', type: 'text' },
     { key: 'fontSize', label: 'ラベルサイズ', type: 'number', min: 6, step: 1 },
     { key: 'decimals', label: '小数桁', type: 'number', min: 0, max: 3, step: 1 },
+    labelBgField,
   ],
-  Renderer: ({ props }) => {
+  Renderer: ({ props, transform, objectId, interactive }) => {
     const sweep = normalizeSweep(props.endAngle - props.startAngle);
-    const midDeg = props.startAngle + sweep / 2;
-    const labelR = props.radius + props.fontSize * 0.9;
-    const labelPos = pointOnCircleAtAngle(ORIGIN, labelR, midDeg);
+    const labelPos = labelAnchor(props);
     const arcs: number[] =
       Number(props.count) >= 2 ? [props.radius, props.radius - props.gap] : [props.radius];
     return (
@@ -115,18 +139,26 @@ export const angleMarkPlugin: PhysicsObjectPlugin<AngleMarkProps> = {
         <MarkLabel
           x={labelPos.x}
           y={labelPos.y}
+          dx={props.labelDx}
+          dy={props.labelDy}
+          rotation={transform?.rotation ?? 0}
           mode={props.labelMode}
           text={labelText(props)}
           latex={props.latex}
           fontSize={props.fontSize}
           color={props.stroke}
+          bg={props.labelBg}
+          objectId={objectId}
+          interactive={interactive}
         />
       </g>
     );
   },
   getBounds: (props) => {
     const half = props.radius + props.fontSize * 1.6 + props.gap;
-    return { x: -half, y: -half, width: half * 2, height: half * 2 };
+    const shape = { x: -half, y: -half, width: half * 2, height: half * 2 };
+    const label = labelLocalBounds(labelAnchor(props), props, markContent(props), props.fontSize);
+    return label ? unionRects([shape, label])! : shape;
   },
   getSnapPoints: () => [{ x: 0, y: 0 }],
   applyRefs: (props, resolved, transform) => {
@@ -137,6 +169,7 @@ export const angleMarkPlugin: PhysicsObjectPlugin<AngleMarkProps> = {
       transform: { ...transform, x: solved.vertex.x, y: solved.vertex.y, rotation: 0, scaleX: 1, scaleY: 1 },
     };
   },
+  moveLabel: moveLabelOffset,
   capabilities: { rotatable: false, scalable: 'none' },
   placement: 'pick-segments',
   createFromPicks: (picks) => {

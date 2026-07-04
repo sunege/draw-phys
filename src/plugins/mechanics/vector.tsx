@@ -1,3 +1,4 @@
+import { labelDecoDefaults } from '../basic/objectLabel';
 import { makeVectorPlugin } from './vectorFactory';
 
 /** 汎用ベクトル(速度・加速度など) */
@@ -16,9 +17,12 @@ export const vectorPlugin = makeVectorPlugin({
     strokeWidth: 2.5,
     headSize: 14,
     label: 'v',
+    labelMode: 'text',
+    labelLatex: '\\vec{v}',
     fontSize: 18,
     labelPos: 'middle',
     showPoint: false,
+    ...labelDecoDefaults,
   },
   showPointOption: false,
 });

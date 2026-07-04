@@ -47,7 +47,9 @@ export async function buildSvgString(
       const plugin = registry.get(obj.pluginId);
       if (!plugin) return '';
       if (plugin.exportStyles) styleSources.set(plugin.id, plugin.exportStyles.bind(plugin));
-      const markup = renderToStaticMarkup(createElement(plugin.Renderer, { props: obj.props }));
+      const markup = renderToStaticMarkup(
+        createElement(plugin.Renderer, { props: obj.props, transform: obj.transform }),
+      );
       return `<g transform="${transformToString(obj.transform)}">${markup}</g>`;
     })
     .join('\n');
