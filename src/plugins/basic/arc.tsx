@@ -1,0 +1,150 @@
+import type { PhysicsObjectPlugin } from '../../core/plugin';
+import type { Point, Rect } from '../../core/types';
+import { CenterMark } from './CenterMark';
+
+interface ArcProps {
+  radius: number;
+  /** 開始角(度, -180〜180)。0=右方向、角度が増えると画面上は時計回り */
+  startAngle: number;
+  /** 終了角(度, -180〜180) */
+  endAngle: number;
+  stroke: string;
+  strokeWidth: number;
+  lineStyle: 'solid' | 'dashed' | 'dotted';
+  showCenter: boolean;
+}
+
+const DEG = Math.PI / 180;
+
+function pointAt(r: number, deg: number): Point {
+  return { x: r * Math.cos(deg * DEG), y: r * Math.sin(deg * DEG) };
+}
+
+/** 開始角→終了角(増加方向)の掃引角(度)。0〜360に正規化し、0はfull扱い */
+function sweepDelta(startAngle: number, endAngle: number): number {
+  let delta = ((endAngle - startAngle) % 360 + 360) % 360;
+  if (delta === 0) delta = 360;
+  return delta;
+}
+
+/** ほぼ全周かどうか(1本のarcで描けないため円で描く) */
+export function isFullArc(startAngle: number, endAngle: number): boolean {
+  return sweepDelta(startAngle, endAngle) >= 359.999;
+}
+
+/** 円弧のSVGパス(中心原点) */
+export function arcPath(radius: number, startAngle: number, endAngle: number): string {
+  const delta = sweepDelta(startAngle, endAngle);
+  const s = pointAt(radius, startAngle);
+  const e = pointAt(radius, startAngle + delta);
+  const largeArc = delta > 180 ? 1 : 0;
+  // y下向き座標系では増加方向=時計回りなので sweep-flag=1
+  return `M ${s.x} ${s.y} A ${radius} ${radius} 0 ${largeArc} 1 ${e.x} ${e.y}`;
+}
+
+/** 円弧の軸平行バウンディングボックス(中心原点) */
+export function arcBounds(radius: number, startAngle: number, endAngle: number): Rect {
+  if (isFullArc(startAngle, endAngle)) {
+    return { x: -radius, y: -radius, width: radius * 2, height: radius * 2 };
+  }
+  const delta = sweepDelta(startAngle, endAngle);
+  const a1 = startAngle + delta;
+  const pts: Point[] = [pointAt(radius, startAngle), pointAt(radius, a1)];
+  // 範囲内の90°倍数(x=±r, y=±rの極値)を加える
+  for (let k = Math.ceil(startAngle / 90) * 90; k <= a1; k += 90) {
+    pts.push(pointAt(radius, k));
+  }
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  return { x: minX, y: minY, width: Math.max(...xs) - minX, height: Math.max(...ys) - minY };
+}
+
+function dashArray(props: ArcProps): string | undefined {
+  if (props.lineStyle === 'dashed') return `${props.strokeWidth * 4} ${props.strokeWidth * 3}`;
+  if (props.lineStyle === 'dotted') return `${props.strokeWidth} ${props.strokeWidth * 2}`;
+  return undefined;
+}
+
+export const arcPlugin: PhysicsObjectPlugin<ArcProps> = {
+  id: 'core.arc',
+  version: 1,
+  name: '円弧',
+  category: '基本図形',
+  Icon: () => (
+    <svg width="20" height="20" viewBox="0 0 24 24">
+      <path d="M5 18 A9 9 0 0 1 19 6" fill="none" stroke="currentColor" strokeWidth="2" />
+    </svg>
+  ),
+  defaultProps: {
+    radius: 50,
+    startAngle: 0,
+    endAngle: 120,
+    stroke: '#333333',
+    strokeWidth: 2,
+    lineStyle: 'solid',
+    showCenter: false,
+  },
+  defaultSize: { width: 100, height: 100 },
+  propertySchema: [
+    { key: 'radius', label: '半径', type: 'number', min: 1, step: 5 },
+    { key: 'startAngle', label: '開始角', type: 'number', min: -180, max: 180, step: 5 },
+    { key: 'endAngle', label: '終了角', type: 'number', min: -180, max: 180, step: 5 },
+    { key: 'stroke', label: '線色', type: 'color' },
+    { key: 'strokeWidth', label: '線幅', type: 'number', min: 0.5, step: 0.5 },
+    {
+      key: 'lineStyle',
+      label: '線種',
+      type: 'select',
+      options: [
+        { value: 'solid', label: '実線' },
+        { value: 'dashed', label: '破線' },
+        { value: 'dotted', label: '点線' },
+      ],
+    },
+    { key: 'showCenter', label: '重心を表示', type: 'boolean' },
+  ],
+  Renderer: ({ props }) => (
+    <g>
+      {isFullArc(props.startAngle, props.endAngle) ? (
+        <circle
+          r={props.radius}
+          fill="none"
+          stroke={props.stroke}
+          strokeWidth={props.strokeWidth}
+          strokeDasharray={dashArray(props)}
+        />
+      ) : (
+        <path
+          d={arcPath(props.radius, props.startAngle, props.endAngle)}
+          fill="none"
+          stroke={props.stroke}
+          strokeWidth={props.strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={dashArray(props)}
+        />
+      )}
+      {props.showCenter && <CenterMark color={props.stroke} />}
+    </g>
+  ),
+  getBounds: (props) => arcBounds(props.radius, props.startAngle, props.endAngle),
+  getSnapPoints: (props) => {
+    const delta = sweepDelta(props.startAngle, props.endAngle);
+    return [
+      { x: 0, y: 0 },
+      pointAt(props.radius, props.startAngle),
+      pointAt(props.radius, props.startAngle + delta),
+      pointAt(props.radius, props.startAngle + delta / 2),
+    ];
+  },
+  getCircle: (props) => ({
+    center: { x: 0, y: 0 },
+    radius: props.radius,
+    startAngle: props.startAngle,
+    endAngle: props.endAngle,
+  }),
+  applyScale: (props, fx) => ({ ...props, radius: props.radius * fx }),
+  capabilities: { rotatable: true, scalable: 'uniform' },
+  placement: 'click',
+};

@@ -1,0 +1,110 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(17, 24, 39, 0.4);
+}
+
+.dialog {
+  width: 380px;
+  padding: 16px 20px;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  color: #111827;
+}
+
+.fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.fieldset legend {
+  padding: 0 4px;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.fieldset label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.options {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.options label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.options select {
+  padding: 2px 6px;
+  font-size: 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+}
+
+.message {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #1d4ed8;
+}
+
+.buttons {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.buttonsRight {
+  display: flex;
+  gap: 8px;
+}
+
+.buttons button {
+  padding: 5px 12px;
+  font-size: 12px;
+  color: #374151;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.buttons button:hover:enabled {
+  background: #e5e7eb;
+}
+
+.primary {
+  color: #ffffff !important;
+  background: #2b7de9 !important;
+  border-color: #2b7de9 !important;
+}
+
+.primary:hover:enabled {
+  background: #1d6fdc !important;
+}
