@@ -2,6 +2,7 @@ import type { PhysicsObjectPlugin } from '../../core/plugin';
 import type { Point, Rect } from '../../core/types';
 import { CenterMark } from './CenterMark';
 import { centerDefaults, centerFields } from './centerFields';
+import { dashArray, lineStyleField, type LineStyle } from './lineUtils';
 
 interface ArcProps {
   radius: number;
@@ -11,7 +12,7 @@ interface ArcProps {
   endAngle: number;
   stroke: string;
   strokeWidth: number;
-  lineStyle: 'solid' | 'dashed' | 'dotted';
+  lineStyle: LineStyle;
   showCenter: boolean;
   centerStyle: 'cross' | 'dot';
   centerSize: number;
@@ -64,12 +65,6 @@ export function arcBounds(radius: number, startAngle: number, endAngle: number):
   return { x: minX, y: minY, width: Math.max(...xs) - minX, height: Math.max(...ys) - minY };
 }
 
-function dashArray(props: ArcProps): string | undefined {
-  if (props.lineStyle === 'dashed') return `${props.strokeWidth * 4} ${props.strokeWidth * 3}`;
-  if (props.lineStyle === 'dotted') return `${props.strokeWidth} ${props.strokeWidth * 2}`;
-  return undefined;
-}
-
 export const arcPlugin: PhysicsObjectPlugin<ArcProps> = {
   id: 'core.arc',
   version: 1,
@@ -96,16 +91,7 @@ export const arcPlugin: PhysicsObjectPlugin<ArcProps> = {
     { key: 'endAngle', label: '終了角', type: 'number', min: -180, max: 180, step: 5 },
     { key: 'stroke', label: '線色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0.5, step: 0.5 },
-    {
-      key: 'lineStyle',
-      label: '線種',
-      type: 'select',
-      options: [
-        { value: 'solid', label: '実線' },
-        { value: 'dashed', label: '破線' },
-        { value: 'dotted', label: '点線' },
-      ],
-    },
+    lineStyleField,
     ...centerFields,
   ],
   Renderer: ({ props }) => (
@@ -116,7 +102,7 @@ export const arcPlugin: PhysicsObjectPlugin<ArcProps> = {
           fill="none"
           stroke={props.stroke}
           strokeWidth={props.strokeWidth}
-          strokeDasharray={dashArray(props)}
+          strokeDasharray={dashArray(props.lineStyle, props.strokeWidth)}
         />
       ) : (
         <path
@@ -125,7 +111,7 @@ export const arcPlugin: PhysicsObjectPlugin<ArcProps> = {
           stroke={props.stroke}
           strokeWidth={props.strokeWidth}
           strokeLinecap="round"
-          strokeDasharray={dashArray(props)}
+          strokeDasharray={dashArray(props.lineStyle, props.strokeWidth)}
         />
       )}
       {props.showCenter && (

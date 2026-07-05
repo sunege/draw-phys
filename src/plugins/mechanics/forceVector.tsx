@@ -16,6 +16,7 @@ export const forceVectorPlugin = makeVectorPlugin({
     length: 100,
     color: '#d32f2f',
     strokeWidth: 2.5,
+    lineStyle: 'solid',
     headSize: 14,
     label: 'F',
     labelMode: 'text',

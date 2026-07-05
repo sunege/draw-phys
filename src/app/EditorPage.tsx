@@ -6,6 +6,7 @@ import { pluginRegistry } from '../core/registry';
 import { useAutosave } from '../persistence/useAutosave';
 import { useDocumentStore } from '../state/documentStore';
 import { useWorkspaceStore } from '../state/workspaceStore';
+import { HintOverlay } from '../ui/HintOverlay';
 import { MenuBar } from '../ui/MenuBar';
 import { PropertyPanel } from '../ui/PropertyPanel';
 import { Toolbox } from '../ui/Toolbox';
@@ -50,6 +51,7 @@ export function EditorPage() {
         <Toolbox />
         <div className={styles.canvasArea}>
           <CanvasStage />
+          <HintOverlay />
         </div>
         <PropertyPanel />
       </div>

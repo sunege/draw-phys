@@ -9,6 +9,7 @@ import {
   resolveFillOpacity,
   type FillPattern,
 } from '../basic/fillPattern';
+import { dashArray, lineStyleField, type LineStyle } from '../basic/lineUtils';
 import {
   labelBgField,
   labelDecoDefaults,
@@ -24,6 +25,7 @@ interface BlockProps extends LabelDecoProps {
   fill: string;
   stroke: string;
   strokeWidth: number;
+  lineStyle: LineStyle;
   label: string;
   /** ラベルの表示種別 */
   labelMode: LabelContent['mode'];
@@ -59,6 +61,7 @@ export const blockPlugin: PhysicsObjectPlugin<BlockProps> = {
     fill: '#f5f5f5',
     stroke: '#333333',
     strokeWidth: 2,
+    lineStyle: 'solid',
     label: 'm',
     labelMode: 'text',
     labelLatex: 'm',
@@ -75,6 +78,7 @@ export const blockPlugin: PhysicsObjectPlugin<BlockProps> = {
     fillOpacityField,
     { key: 'stroke', label: '線色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0, step: 0.5 },
+    lineStyleField,
     fillPatternField,
     {
       key: 'labelMode',
@@ -103,6 +107,7 @@ export const blockPlugin: PhysicsObjectPlugin<BlockProps> = {
         fillOpacity={resolveFillOpacity(props)}
         stroke={props.stroke}
         strokeWidth={props.strokeWidth}
+        strokeDasharray={dashArray(props.lineStyle, props.strokeWidth)}
       />
       <ObjectLabel
         anchor={ORIGIN}

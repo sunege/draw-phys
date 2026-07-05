@@ -1,5 +1,16 @@
 import type { PhysicsObjectPlugin } from '../../core/plugin';
-import { hitStrokeWidth, lineFromDrag, segmentEndpoints, segmentFromEndpoints } from './lineUtils';
+import {
+  applyTangent,
+  dashArray,
+  dragTangentEndpoint,
+  hitStrokeWidth,
+  lineFromDrag,
+  lineStyleField,
+  segmentEndpoints,
+  segmentFromEndpoints,
+  tangentAnchorPoint,
+  type LineStyle,
+} from './lineUtils';
 
 interface ArrowProps {
   length: number;
@@ -7,6 +18,9 @@ interface ArrowProps {
   strokeWidth: number;
   headSize: number;
   doubleHead: boolean;
+  lineStyle: LineStyle;
+  /** 接線拘束時の接点オフセット(線分系共通の内部状態) */
+  tangentOffset?: number;
 }
 
 /** 矢先のポリゴン点列(先端がtipX) */
@@ -33,12 +47,14 @@ export const arrowPlugin: PhysicsObjectPlugin<ArrowProps> = {
     strokeWidth: 2,
     headSize: 12,
     doubleHead: false,
+    lineStyle: 'solid',
   },
   defaultSize: { width: 100, height: 12 },
   propertySchema: [
     { key: 'length', label: '長さ', type: 'number', min: 1, step: 10 },
     { key: 'stroke', label: '色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0.5, step: 0.5 },
+    lineStyleField,
     { key: 'headSize', label: '矢先サイズ', type: 'number', min: 2, step: 1 },
     { key: 'doubleHead', label: '両端矢印', type: 'boolean' },
   ],
@@ -56,6 +72,7 @@ export const arrowPlugin: PhysicsObjectPlugin<ArrowProps> = {
           y2={0}
           stroke={props.stroke}
           strokeWidth={props.strokeWidth}
+          strokeDasharray={dashArray(props.lineStyle, props.strokeWidth)}
         />
         <polygon points={headPoints(half, 1, props.headSize)} fill={props.stroke} />
         {props.doubleHead && (
@@ -87,6 +104,9 @@ export const arrowPlugin: PhysicsObjectPlugin<ArrowProps> = {
     const { length, transform } = segmentFromEndpoints(a, b);
     return { props: { ...props, length }, transform };
   },
+  applyRefs: applyTangent,
+  getAnchorPoint: tangentAnchorPoint,
+  dragEndpointConstrained: dragTangentEndpoint,
   capabilities: { rotatable: true, scalable: 'none' },
   placement: 'drag-line',
   createFromDrag(start, end) {

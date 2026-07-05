@@ -9,6 +9,7 @@ import {
   resolveFillOpacity,
   type FillPattern,
 } from './fillPattern';
+import { dashArray, lineStyleField, type LineStyle } from './lineUtils';
 
 interface RectProps {
   width: number;
@@ -16,6 +17,7 @@ interface RectProps {
   fill: string;
   stroke: string;
   strokeWidth: number;
+  lineStyle: LineStyle;
   fillPattern: FillPattern;
   fillOpacity: number;
   showCenter: boolean;
@@ -39,6 +41,7 @@ export const rectPlugin: PhysicsObjectPlugin<RectProps> = {
     fill: '#ffffff',
     stroke: '#333333',
     strokeWidth: 2,
+    lineStyle: 'solid',
     fillPattern: 'none',
     fillOpacity: 1,
     ...centerDefaults,
@@ -51,6 +54,7 @@ export const rectPlugin: PhysicsObjectPlugin<RectProps> = {
     fillOpacityField,
     { key: 'stroke', label: '線色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0, step: 0.5 },
+    lineStyleField,
     fillPatternField,
     ...centerFields,
   ],
@@ -66,6 +70,7 @@ export const rectPlugin: PhysicsObjectPlugin<RectProps> = {
         fillOpacity={resolveFillOpacity(props)}
         stroke={props.stroke}
         strokeWidth={props.strokeWidth}
+        strokeDasharray={dashArray(props.lineStyle, props.strokeWidth)}
       />
       {props.showCenter && (
         <CenterMark color={props.stroke} style={props.centerStyle} size={props.centerSize} />

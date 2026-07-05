@@ -13,8 +13,10 @@ export function MenuBar({ fileName }: { fileName?: string }) {
   const zoom = useViewportStore((s) => s.zoom);
   const gridVisible = useViewportStore((s) => s.gridVisible);
   const snapEnabled = useViewportStore((s) => s.snapEnabled);
+  const snapDivision = useViewportStore((s) => s.snapDivision);
   const setGridVisible = useViewportStore((s) => s.setGridVisible);
   const setSnapEnabled = useViewportStore((s) => s.setSnapEnabled);
+  const setSnapDivision = useViewportStore((s) => s.setSnapDivision);
   const resetView = useViewportStore((s) => s.resetView);
 
   return (
@@ -58,7 +60,7 @@ export function MenuBar({ fileName }: { fileName?: string }) {
         />
         グリッド
       </label>
-      <label className={styles.toggle}>
+      <label className={styles.toggle} title="スナップON/OFF (Sキー)">
         <input
           type="checkbox"
           checked={snapEnabled}
@@ -66,6 +68,17 @@ export function MenuBar({ fileName }: { fileName?: string }) {
         />
         スナップ
       </label>
+      <select
+        className={styles.snapSelect}
+        value={snapDivision}
+        onChange={(e) => setSnapDivision(Number(e.target.value) as 1 | 2 | 4)}
+        disabled={!snapEnabled}
+        title="スナップ間隔"
+      >
+        <option value={1}>グリッド</option>
+        <option value={2}>1/2</option>
+        <option value={4}>1/4</option>
+      </select>
       <button type="button" className={styles.zoomButton} onClick={resetView} title="表示をリセット">
         {Math.round(zoom * 100)}%
       </button>

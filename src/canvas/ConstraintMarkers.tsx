@@ -108,6 +108,39 @@ function CoincidentGlyph({ at, zoom, objectId }: { at: Point; zoom: number; obje
   );
 }
 
+/**
+ * 接線拘束を表すマーク。接点で「接線+小円」を接線方向に描く。
+ * data-constraint 付きでクリック可能(拘束へアクセスする)。
+ */
+function TangentGlyph({
+  at,
+  angle,
+  zoom,
+  objectId,
+}: {
+  at: Point;
+  angle: number;
+  zoom: number;
+  objectId: string;
+}) {
+  const s = 7 / zoom; // 接線の半長
+  const r = 4 / zoom; // 小円の半径
+  const sw = 2 / zoom;
+  return (
+    <g
+      data-constraint={objectId}
+      data-constraint-role="anchor"
+      transform={`translate(${at.x} ${at.y}) rotate(${angle})`}
+      style={{ cursor: 'pointer' }}
+    >
+      {/* クリック当たり判定を広げる透明な下敷き */}
+      <rect x={-s - sw} y={-r * 2 - sw} width={(s + sw) * 2} height={r * 2 + sw * 2} fill="transparent" />
+      <line x1={-s} y1={0} x2={s} y2={0} stroke={COLOR} strokeWidth={sw} strokeLinecap="round" />
+      <circle cx={0} cy={-r} r={r} fill="none" stroke={COLOR} strokeWidth={sw} />
+    </g>
+  );
+}
+
 /** アクセス中の拘束に出す解除ピル(SVG内で完結・クリックでその拘束を外す) */
 function RemovePill({
   at,
@@ -195,6 +228,22 @@ export function ConstraintMarkers() {
         if (focused?.objectId === obj.id && focused.role === 'coincident') {
           markers.push(
             <RemovePill key={`${obj.id}-cp`} at={at} zoom={zoom} objectId={obj.id} role="coincident" />,
+          );
+        }
+      }
+    }
+
+    // 接線拘束(円周へのanchor): 接点に接線マークを置く
+    const tangent = obj.refs.find((r) => r.role === 'anchor' && r.kind === 'circle');
+    if (tangent) {
+      const resolved = resolveRef(tangent, objects, pluginRegistry);
+      if (resolved?.tangent) {
+        const at = resolved.point;
+        const angle = angleOfVector(resolved.tangent);
+        markers.push(<TangentGlyph key={`${obj.id}-t`} at={at} angle={angle} zoom={zoom} objectId={obj.id} />);
+        if (focused?.objectId === obj.id && focused.role === 'anchor') {
+          markers.push(
+            <RemovePill key={`${obj.id}-tp`} at={at} zoom={zoom} objectId={obj.id} role="anchor" />,
           );
         }
       }

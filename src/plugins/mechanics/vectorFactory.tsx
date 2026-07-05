@@ -3,10 +3,16 @@ import { unionRects } from '../../core/geometry';
 import type { PhysicsObjectPlugin } from '../../core/plugin';
 import { ObjectLabel } from '../basic/LabelView';
 import {
+  applyTangent,
+  dashArray,
+  dragTangentEndpoint,
   hitStrokeWidth,
   lineFromDrag,
+  lineStyleField,
   segmentEndpoints,
   segmentFromEndpoints,
+  tangentAnchorPoint,
+  type LineStyle,
 } from '../basic/lineUtils';
 import {
   labelBgField,
@@ -20,6 +26,7 @@ export interface VectorProps extends LabelDecoProps {
   length: number;
   color: string;
   strokeWidth: number;
+  lineStyle: LineStyle;
   headSize: number;
   label: string;
   /** ラベルの表示種別 */
@@ -30,6 +37,8 @@ export interface VectorProps extends LabelDecoProps {
   labelPos: 'tip' | 'middle';
   /** 作用点(始点)に点を打つ */
   showPoint: boolean;
+  /** 接線拘束時の接点オフセット(線分系共通の内部状態) */
+  tangentOffset?: number;
 }
 
 function vectorLabel(props: VectorProps): LabelContent {
@@ -72,6 +81,7 @@ export function makeVectorPlugin(config: {
       { key: 'length', label: '長さ', type: 'number', min: 1, step: 10 },
       { key: 'color', label: '色', type: 'color' },
       { key: 'strokeWidth', label: '線幅', type: 'number', min: 0.5, step: 0.5 },
+      lineStyleField,
       { key: 'headSize', label: '矢先サイズ', type: 'number', min: 2, step: 1 },
       {
         key: 'labelMode',
@@ -114,6 +124,7 @@ export function makeVectorPlugin(config: {
             y2={0}
             stroke={props.color}
             strokeWidth={props.strokeWidth}
+            strokeDasharray={dashArray(props.lineStyle, props.strokeWidth)}
           />
           <polygon
             points={`${half},0 ${half - props.headSize},${-halfW} ${half - props.headSize},${halfW}`}
@@ -167,6 +178,9 @@ export function makeVectorPlugin(config: {
       const { length, transform } = segmentFromEndpoints(a, b);
       return { props: { ...props, length }, transform };
     },
+    applyRefs: applyTangent,
+    getAnchorPoint: tangentAnchorPoint,
+    dragEndpointConstrained: dragTangentEndpoint,
     moveLabel: moveLabelOffset,
     capabilities: { rotatable: true, scalable: 'none' },
     placement: 'drag-line',

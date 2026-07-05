@@ -15,6 +15,7 @@ export const vectorPlugin = makeVectorPlugin({
     length: 100,
     color: '#1565c0',
     strokeWidth: 2.5,
+    lineStyle: 'solid',
     headSize: 14,
     label: 'v',
     labelMode: 'text',

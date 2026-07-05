@@ -22,6 +22,7 @@ import type { ObjectRef, Point, Rect, Transform } from '../core/types';
 import { copySelection, duplicateSelection, pasteClipboard } from '../state/clipboard';
 import { useConstraintStore } from '../state/constraintStore';
 import { expandWithGroups, useDocumentStore } from '../state/documentStore';
+import { useHintStore } from '../state/hintStore';
 import { useToolStore } from '../state/toolStore';
 import { useViewportStore } from '../state/viewportStore';
 import { ConstraintMarkers } from './ConstraintMarkers';
@@ -267,7 +268,7 @@ export function CanvasStage() {
     }
   }, [selection, rotatePivot]);
   // 拘束モードで1回目に選んだオブジェクト(安定した参照を購読し、枠は描画時に導出)
-  const firstPickId = parallelObjId ?? coincidentPick?.objId ?? null;
+  const firstPickId = parallelObjId ?? coincidentPick?.objId ?? tangentLineId ?? null;
   const firstPickObj = useDocumentStore((s) => (firstPickId ? s.objects[firstPickId] : undefined));
   const firstPickPlugin = firstPickObj ? pluginRegistry.get(firstPickObj.pluginId) : undefined;
   const firstPickBounds =
@@ -382,6 +383,10 @@ export function CanvasStage() {
         } else {
           doc.removeObjects(doc.selection);
         }
+      } else if (key === 's' && !mod) {
+        // スナップON/OFF切り替え(間隔設定は保持)
+        e.preventDefault();
+        useViewportStore.getState().toggleSnap();
       } else if (e.key === 'Escape') {
         useToolStore.getState().setActiveTool('select');
         doc.clearSelection();
@@ -411,6 +416,36 @@ export function CanvasStage() {
     setCoincidentPick(null);
   }, [activeTool]);
 
+  // 拘束モードの操作ガイドを上部中央に表示する(ステップ進行で文言を差し替え)
+  useEffect(() => {
+    const { setHint } = useHintStore.getState();
+    if (activeTool === PARALLEL_TOOL || activeTool === PERPENDICULAR_TOOL) {
+      const title = activeTool === PERPENDICULAR_TOOL ? '垂直' : '平行';
+      setHint(
+        parallelObjId
+          ? { title, message: '基準にする線分・辺をクリック', step: { current: 2, total: 2 } }
+          : { title, message: '向きを合わせるオブジェクトをクリック', step: { current: 1, total: 2 } },
+      );
+    } else if (activeTool === COINCIDENT_TOOL) {
+      setHint(
+        coincidentPick
+          ? { title: '一致', message: '基準にする接続点をクリック', step: { current: 2, total: 2 } }
+          : { title: '一致', message: '動かすオブジェクトの接続点をクリック', step: { current: 1, total: 2 } },
+      );
+    } else if (activeTool === TANGENT_TOOL) {
+      setHint(
+        tangentLineId
+          ? { title: '接線', message: '接続する円・円弧をクリック' }
+          : { title: '接線', message: '円・円弧をクリック（先に線・矢印・ベクトルを選ぶと接続）' },
+      );
+    } else {
+      setHint(null);
+    }
+  }, [activeTool, parallelObjId, coincidentPick, tangentLineId]);
+
+  // アンマウント時にヒントを片付ける
+  useEffect(() => () => useHintStore.getState().clearHint(), []);
+
   const worldFromEvent = (e: React.PointerEvent): Point => {
     const { pan, zoom } = useViewportStore.getState();
     return screenToWorld(e.clientX, e.clientY, svgRef.current!, pan, zoom);
@@ -435,7 +470,8 @@ export function CanvasStage() {
     if (e.button !== 0) return;
 
     const doc = useDocumentStore.getState();
-    const { snapEnabled, gridSize } = useViewportStore.getState();
+    const { snapEnabled, snapStep } = useViewportStore.getState();
+    const gridSize = snapStep();
     const world = worldFromEvent(e);
 
     // 拘束の解除ピルのクリック: そのロールの拘束のみを外す
@@ -795,7 +831,8 @@ export function CanvasStage() {
 
     const world = worldFromEvent(e);
     const doc = useDocumentStore.getState();
-    const { snapEnabled, gridSize, zoom } = useViewportStore.getState();
+    const { snapEnabled, zoom, snapStep } = useViewportStore.getState();
+    const gridSize = snapStep();
 
     if (drag.mode === 'move') {
       const snapped = snapMovement({
@@ -1072,7 +1109,8 @@ export function CanvasStage() {
       });
     } else if (drag.mode === 'endpoint' && drag.moved) {
       // applyRefs対応(長さマーク等)が対象へ吸着していれば、追従バインドを作成
-      const { snapEnabled, gridSize, zoom } = useViewportStore.getState();
+      const { snapEnabled, zoom, snapStep } = useViewportStore.getState();
+      const gridSize = snapStep();
       const snapped = snapEndpoint({
         point: worldFromEvent(e),
         objects: doc.objects,
@@ -1106,7 +1144,8 @@ export function CanvasStage() {
       }
     } else if (drag.mode === 'coincidentDrag') {
       if (drag.moved) {
-        const { snapEnabled, gridSize, zoom } = useViewportStore.getState();
+        const { snapEnabled, zoom, snapStep } = useViewportStore.getState();
+        const gridSize = snapStep();
         const co = drag.beforeRefs.find((r) => r.role === 'coincident');
         if (co) {
           const snapped = snapAnchorPoint({
@@ -1151,7 +1190,8 @@ export function CanvasStage() {
       }
       setMarquee(null);
     } else if (drag.mode === 'place-line' && drag.plugin.createFromDrag) {
-      const { snapEnabled, gridSize } = useViewportStore.getState();
+      const { snapEnabled, snapStep } = useViewportStore.getState();
+      const gridSize = snapStep();
       const world = worldFromEvent(e);
       const end = snapEnabled ? snapPoint(world, gridSize) : world;
       const created = drag.plugin.createFromDrag(drag.start, end);
