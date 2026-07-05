@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { localSnapPoints, parallelOffset } from '../core/constraints';
+import {
+  findRotationLock,
+  localSnapPoints,
+  parallelOffset,
+  perpendicularOffset,
+  resolveCoincidentAnchor,
+} from '../core/constraints';
 import { createSceneObject, type SceneObject } from '../core/document';
 import {
   angleOfVector,
@@ -23,8 +29,15 @@ import { screenToWorld } from './coords';
 import { GridLayer } from './GridLayer';
 import { ObjectsLayer } from './ObjectsLayer';
 import { SelectionOverlay } from './SelectionOverlay';
-import { snapEndpoint, snapMovement, snapWorldPoint, type EndpointAttach } from './snapping';
-import { COINCIDENT_TOOL, PARALLEL_TOOL, TANGENT_TOOL } from './tools';
+import {
+  snapAnchorPoint,
+  snapEndpoint,
+  snapMovement,
+  snapWorldPoint,
+  type AnchorBind,
+  type EndpointAttach,
+} from './snapping';
+import { COINCIDENT_TOOL, PARALLEL_TOOL, PERPENDICULAR_TOOL, TANGENT_TOOL } from './tools';
 import {
   computeRotationAboutPivot,
   computeScaleDrag,
@@ -67,9 +80,19 @@ type DragState =
       plugin: AnyPlugin;
       /** 円拘束された線の端点(片側長さ変更モード) */
       constrained: boolean;
+      /**
+       * 一致/平行拘束された線の端点編集。反対端(または一致基準点)を固定して長さを変える。
+       * coincidentBase があれば位置を固定、parallelLocked なら向きを基準へ固定する。
+       */
+      endpointPin: {
+        coincidentBase: Point | null;
+        parallelLocked: boolean;
+        beforeRefs: ObjectRef[];
+      } | null;
       moved: boolean;
     }
   | { mode: 'anchor'; id: string; targetId: string; beforeRefs: ObjectRef[]; moved: boolean }
+  | { mode: 'coincidentDrag'; id: string; beforeRefs: ObjectRef[]; moved: boolean }
   | {
       mode: 'labelDrag';
       id: string;
@@ -182,6 +205,21 @@ function nearestSnapPoint(obj: SceneObject, world: Point): { local: Point; index
     if (!holder.best || d < holder.best.dist) holder.best = { local, index, dist: d };
   });
   return holder.best ? { local: holder.best.local, index: holder.best.index } : null;
+}
+
+/**
+ * 一致点ドラッグの結果(bind/自由座標)から新しい coincident 参照を作る。
+ * localAnchor(自オブジェクト側の接続点)は引き継ぐ。
+ */
+function makeCoincidentRef(
+  prev: ObjectRef,
+  snapped: { point: Point; bind?: AnchorBind },
+): ObjectRef {
+  if (snapped.bind) {
+    return { role: 'coincident', localAnchor: prev.localAnchor, ...snapped.bind };
+  }
+  // どこにも吸着しなければ自由座標へ(対象なし)
+  return { role: 'coincident', kind: 'point', targetId: '', localAnchor: prev.localAnchor, worldAnchor: snapped.point };
 }
 
 /** 端点吸着の相手情報から追従バインド用の refs を作る */
@@ -409,22 +447,30 @@ export function CanvasStage() {
       useConstraintStore.getState().setFocused(null);
       return;
     }
-    // 拘束マーカーのクリック: 拘束へアクセス(対象を選択し解除UIを出す)
+    // 拘束マーカーのクリック/ドラッグ
     const markerEl = (e.target as Element).closest('[data-constraint]');
     if (markerEl) {
       const id = markerEl.getAttribute('data-constraint');
       const role = markerEl.getAttribute('data-constraint-role');
-      if (id && role && doc.objects[id]) {
+      const mObj = id ? doc.objects[id] : undefined;
+      if (id && role && mObj) {
         doc.setSelection([id]);
-        useConstraintStore.getState().setFocused({ objectId: id, role });
+        if (role === 'coincident' && !mObj.locked) {
+          // 一致点はドラッグで移動できる。未移動(クリック)なら pointerup でアクセスUIを出す
+          dragRef.current = { mode: 'coincidentDrag', id, beforeRefs: mObj.refs ?? [], moved: false };
+        } else {
+          // それ以外(平行など)はクリックで拘束へアクセス(解除UIを出す)
+          useConstraintStore.getState().setFocused({ objectId: id, role });
+        }
       }
       return;
     }
     // マーカー以外をクリックしたらアクセス中の拘束フォーカスを解除する
     if (useConstraintStore.getState().focused) useConstraintStore.getState().setFocused(null);
 
-    // 平行拘束モード: 「向きを変えるオブジェクト」→「基準の線分/エッジ」の順にクリック
-    if (activeTool === PARALLEL_TOOL) {
+    // 平行/垂直拘束モード: 「向きを変えるオブジェクト」→「基準の線分/エッジ」の順にクリック
+    if (activeTool === PARALLEL_TOOL || activeTool === PERPENDICULAR_TOOL) {
+      const perp = activeTool === PERPENDICULAR_TOOL;
       const hit = (e.target as Element).closest('[data-object-id]');
       const hitObj = hit ? doc.objects[hit.getAttribute('data-object-id') ?? ''] : undefined;
       if (!hitObj) return;
@@ -444,16 +490,20 @@ export function CanvasStage() {
         return;
       }
       const refAngle = angleOfVector({ x: pick.b.x - pick.a.x, y: pick.b.y - pick.a.y });
-      const others = dep.refs?.filter((r) => r.role !== 'parallel') ?? [];
+      const offset = perp
+        ? perpendicularOffset(dep.transform.rotation, refAngle)
+        : parallelOffset(dep.transform.rotation, refAngle);
+      // 回転拘束(平行/垂直)は排他。既存の回転拘束を外して付け替える
+      const others = dep.refs?.filter((r) => r.role !== 'parallel' && r.role !== 'perpendicular') ?? [];
       doc.setObjectRefs(parallelObjId, [
         ...others,
         {
-          role: 'parallel',
+          role: perp ? 'perpendicular' : 'parallel',
           targetId: pick.targetId,
           kind: 'segment',
           segIndex: pick.segIndex,
           t: 0.5,
-          angleOffset: parallelOffset(dep.transform.rotation, refAngle),
+          angleOffset: offset,
         },
       ]);
       doc.setSelection([parallelObjId]);
@@ -609,6 +659,19 @@ export function CanvasStage() {
           const constrained = !!(
             obj.refs?.some((r) => r.kind === 'circle') && plugin.dragEndpointConstrained
           );
+          // 一致/平行拘束された線: 固定点を保って長さ(平行なら向きも)を変える端点編集
+          const coRef = !constrained ? obj.refs?.find((r) => r.role === 'coincident') : undefined;
+          const rotLockRef = !constrained ? findRotationLock(obj.refs) : undefined;
+          const base = coRef ? resolveCoincidentAnchor(coRef, doc.objects, pluginRegistry) : null;
+          const hasCo = !!(coRef && base);
+          const endpointPin =
+            hasCo || rotLockRef
+              ? {
+                  coincidentBase: hasCo ? base : null,
+                  parallelLocked: !!rotLockRef,
+                  beforeRefs: obj.refs ?? [],
+                }
+              : null;
           dragRef.current = {
             mode: 'endpoint',
             id: obj.id,
@@ -617,6 +680,7 @@ export function CanvasStage() {
             beforeProps: obj.props,
             plugin,
             constrained,
+            endpointPin,
             moved: false,
           };
         } else {
@@ -792,6 +856,71 @@ export function CanvasStage() {
       return;
     }
 
+    if (
+      drag.mode === 'endpoint' &&
+      drag.endpointPin &&
+      drag.plugin.getEndpoints &&
+      drag.plugin.setFromEndpoints
+    ) {
+      // 一致/平行拘束された線: 固定点を保ちドラッグ端だけ動かして長さ(平行なら向きも固定)を再構築
+      const { coincidentBase, parallelLocked, beforeRefs } = drag.endpointPin;
+      const snapped = snapEndpoint({
+        point: world,
+        objects: doc.objects,
+        registry: pluginRegistry,
+        excludeIds: new Set([drag.id]),
+        snapEnabled,
+        gridSize,
+        threshold: 8 / zoom,
+      });
+      const worldEps = drag.plugin.getEndpoints(drag.beforeProps).map((p) => localToWorld(p, drag.before));
+      const co = beforeRefs.find((r) => r.role === 'coincident');
+      const anchor = co?.localAnchor ?? { x: 0, y: 0 };
+      // 一致点が中点(局所原点)なら中心を固定して反対端を点対称に動かす
+      const centerAnchor = coincidentBase != null && Math.hypot(anchor.x, anchor.y) < 1e-6;
+      // 固定基準点: 一致基準点があればそれ、無ければ非ドラッグ端の現在位置
+      const F = coincidentBase ?? worldEps[1 - drag.end];
+      // ドラッグ端の目標位置。平行なら向きを固定して基準線上へ射影する
+      let target = snapped.point;
+      if (parallelLocked) {
+        const dv = {
+          x: worldEps[drag.end].x - worldEps[1 - drag.end].x,
+          y: worldEps[drag.end].y - worldEps[1 - drag.end].y,
+        };
+        const dl = Math.hypot(dv.x, dv.y) || 1;
+        const d = { x: dv.x / dl, y: dv.y / dl };
+        const proj = (target.x - F.x) * d.x + (target.y - F.y) * d.y;
+        const len = centerAnchor ? proj : Math.max(proj, 1);
+        target = { x: F.x + len * d.x, y: F.y + len * d.y };
+      }
+      let a: Point;
+      let b: Point;
+      if (centerAnchor) {
+        const other = { x: 2 * F.x - target.x, y: 2 * F.y - target.y };
+        a = drag.end === 0 ? target : other;
+        b = drag.end === 1 ? target : other;
+      } else {
+        a = drag.end === 0 ? target : F;
+        b = drag.end === 1 ? target : F;
+      }
+      const res = drag.plugin.setFromEndpoints(drag.beforeProps, a, b);
+      // 一致拘束があれば固定側の新しい局所位置に localAnchor を更新し整合を保つ
+      let refs: ObjectRef[] | undefined;
+      if (co) {
+        const len = (res.props as { length?: number }).length ?? 0;
+        const newAnchor = centerAnchor ? { x: 0, y: 0 } : { x: drag.end === 0 ? len / 2 : -len / 2, y: 0 };
+        refs = [...beforeRefs.filter((r) => r.role !== 'coincident'), { ...co, localAnchor: newAnchor }];
+      }
+      doc.setObjectTransient(drag.id, {
+        transform: res.transform,
+        props: res.props,
+        ...(refs ? { refs } : {}),
+      });
+      setGuides({ marker: snapped.marker });
+      drag.moved = true;
+      return;
+    }
+
     if (drag.mode === 'endpoint' && drag.plugin.getEndpoints && drag.plugin.setFromEndpoints) {
       const snapped = snapEndpoint({
         point: world,
@@ -839,6 +968,27 @@ export function CanvasStage() {
       });
       setRotatePivot({ id: drag.id, world: snapped.point });
       setGuides({ marker: snapped.marker });
+      drag.moved = true;
+      return;
+    }
+
+    if (drag.mode === 'coincidentDrag') {
+      // 一致点(基準点)の移動。他オブジェクトのスナップ点/辺/円へ吸着すれば再接続、離せば自由座標
+      const co = drag.beforeRefs.find((r) => r.role === 'coincident');
+      if (co) {
+        const snapped = snapAnchorPoint({
+          point: world,
+          objects: doc.objects,
+          registry: pluginRegistry,
+          excludeIds: new Set([drag.id]),
+          snapEnabled,
+          gridSize,
+          threshold: 8 / zoom,
+        });
+        const others = drag.beforeRefs.filter((r) => r.role !== 'coincident');
+        doc.setObjectRefsTransient(drag.id, [...others, makeCoincidentRef(co, snapped)]);
+        setGuides({ marker: snapped.marker });
+      }
       drag.moved = true;
       return;
     }
@@ -912,6 +1062,14 @@ export function CanvasStage() {
     } else if (drag.mode === 'endpoint' && drag.moved && drag.constrained) {
       // 接線拘束の片側長さ変更はバインドを作らずそのまま確定する
       doc.commitObject(drag.id, { transform: drag.before, props: drag.beforeProps });
+    } else if (drag.mode === 'endpoint' && drag.moved && drag.endpointPin) {
+      // 一致/平行拘束された線: transform/props(一致ならlocalAnchorも)を1エントリで確定
+      const hasCo = drag.endpointPin.beforeRefs.some((r) => r.role === 'coincident');
+      doc.commitObject(drag.id, {
+        transform: drag.before,
+        props: drag.beforeProps,
+        ...(hasCo ? { refs: drag.endpointPin.beforeRefs } : {}),
+      });
     } else if (drag.mode === 'endpoint' && drag.moved) {
       // applyRefs対応(長さマーク等)が対象へ吸着していれば、追従バインドを作成
       const { snapEnabled, gridSize, zoom } = useViewportStore.getState();
@@ -945,6 +1103,29 @@ export function CanvasStage() {
       doc.setObjectRefsTransient(drag.id, drag.beforeRefs);
       if (t != null) {
         doc.setObjectRefs(drag.id, [{ role: 'anchor', targetId: drag.targetId, kind: 'circle', t }]);
+      }
+    } else if (drag.mode === 'coincidentDrag') {
+      if (drag.moved) {
+        const { snapEnabled, gridSize, zoom } = useViewportStore.getState();
+        const co = drag.beforeRefs.find((r) => r.role === 'coincident');
+        if (co) {
+          const snapped = snapAnchorPoint({
+            point: worldFromEvent(e),
+            objects: doc.objects,
+            registry: pluginRegistry,
+            excludeIds: new Set([drag.id]),
+            snapEnabled,
+            gridSize,
+            threshold: 8 / zoom,
+          });
+          const others = drag.beforeRefs.filter((r) => r.role !== 'coincident');
+          // ベースを戻してから設定し、1履歴エントリで記録する
+          doc.setObjectRefsTransient(drag.id, drag.beforeRefs);
+          doc.setObjectRefs(drag.id, [...others, makeCoincidentRef(co, snapped)]);
+        }
+      } else {
+        // クリック(未移動): 拘束へアクセス(解除UIを出す)
+        useConstraintStore.getState().setFocused({ objectId: drag.id, role: 'coincident' });
       }
     } else if (drag.mode === 'marquee') {
       // stateのmarqueeは描画用。判定はイベント座標から直接計算する(再レンダー前でも正しく動くように)

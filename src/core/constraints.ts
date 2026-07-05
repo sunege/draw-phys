@@ -37,6 +37,22 @@ export function parallelOffset(objRot: number, refAngle: number): number {
 }
 
 /**
+ * 現在の回転 objRot を基準角 refAngle と「垂直」にするための最小回転オフセット。
+ * refAngle±90 のうち objRot に近い方(+90 か -90)を返す。
+ */
+export function perpendicularOffset(objRot: number, refAngle: number): number {
+  return normDeg(objRot - refAngle) >= 0 ? 90 : -90;
+}
+
+/**
+ * 回転を拘束する参照(平行 or 垂直)を返す。両者は同一成分(回転)を奪い合うため排他。
+ * どちらも angleOffset を基準角に足して回転を決める(平行=0/180, 垂直=±90)。
+ */
+export function findRotationLock(refs?: ObjectRef[]): ObjectRef | undefined {
+  return refs?.find((r) => r.role === 'parallel' || r.role === 'perpendicular');
+}
+
+/**
  * 1つの参照を、対象オブジェクトの現在位置からワールド座標のアンカーへ解決する。
  * 対象やジオメトリが得られなければ null。
  */
@@ -87,6 +103,23 @@ export function resolveRef(
 }
 
 /**
+ * 一致拘束(coincident)の基準点をワールド座標で返す。
+ * 対象オブジェクトが解決できればそのスナップ点/線分/円周の点、
+ * 解決できなければ自由基準点(worldAnchor)を使う。どちらも無ければ null。
+ */
+export function resolveCoincidentAnchor(
+  ref: ObjectRef,
+  objects: SceneObjects,
+  registry: PluginRegistry,
+): Point | null {
+  if (objects[ref.targetId]) {
+    const r = resolveRef(ref, objects, registry);
+    if (r) return r.point;
+  }
+  return ref.worldAnchor ?? null;
+}
+
+/**
  * 参照グラフを依存順(対象→依存)に並べる。DFSトポロジカルソート。
  * 循環は検出したら打ち切る(一方向依存を前提)。
  */
@@ -123,27 +156,27 @@ function solveInto(objs: SceneObjects, registry: PluginRegistry): void {
 
     // 本体が直接解く汎用拘束(プラグイン種別を問わない)。回転(平行)と位置(一致)は
     // それぞれ別の成分に作用するため、両方あれば合成できる。
-    const parallel = obj.refs.find((r) => r.role === 'parallel');
+    const rotLock = findRotationLock(obj.refs);
     const coincident = obj.refs.find((r) => r.role === 'coincident');
-    if (parallel || coincident) {
+    if (rotLock || coincident) {
       let transform = obj.transform;
-      // 平行: 回転だけを基準線分と平行へ揃える
-      if (parallel) {
-        const r = resolveRef(parallel, objs, registry);
+      // 平行/垂直: 回転だけを基準線分の向き+angleOffsetへ揃える(平行=0/180, 垂直=±90)
+      if (rotLock) {
+        const r = resolveRef(rotLock, objs, registry);
         if (r?.tangent) {
-          transform = { ...transform, rotation: angleOfVector(r.tangent) + (parallel.angleOffset ?? 0) };
+          transform = { ...transform, rotation: angleOfVector(r.tangent) + (rotLock.angleOffset ?? 0) };
         }
       }
       // 一致/接続: 局所アンカーを基準点へ一致させる(平行で回した姿勢のまま平行移動)
       if (coincident) {
-        const r = resolveRef(coincident, objs, registry);
-        if (r) {
+        const base = resolveCoincidentAnchor(coincident, objs, registry);
+        if (base) {
           const anchor = coincident.localAnchor ?? { x: 0, y: 0 };
           const cur = localToWorld(anchor, transform);
           transform = {
             ...transform,
-            x: transform.x + (r.point.x - cur.x),
-            y: transform.y + (r.point.y - cur.y),
+            x: transform.x + (base.x - cur.x),
+            y: transform.y + (base.y - cur.y),
           };
         }
       }

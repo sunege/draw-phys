@@ -12,7 +12,8 @@ const EXPORT_MARGIN = 10;
 export function contentRegion(objects: SceneObject[], registry: PluginRegistry): Rect | null {
   const rects: Rect[] = [];
   for (const obj of objects) {
-    if (!obj.visible) continue;
+    // 非表示・コンストラクション(補助線)は出力領域に含めない
+    if (!obj.visible || obj.construction) continue;
     const plugin = registry.get(obj.pluginId);
     if (!plugin) continue;
     rects.push(worldBounds(plugin.getBounds(obj.props), obj.transform));
@@ -38,7 +39,7 @@ export async function buildSvgString(
   background?: string,
 ): Promise<string> {
   const visible = sortedObjects(
-    Object.fromEntries(objects.filter((o) => o.visible).map((o) => [o.id, o])),
+    Object.fromEntries(objects.filter((o) => o.visible && !o.construction).map((o) => [o.id, o])),
   );
 
   const styleSources = new Map<string, () => Promise<string>>();

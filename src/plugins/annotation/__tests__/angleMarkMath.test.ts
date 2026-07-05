@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { SegmentPick } from '../../../core/plugin';
-import { angleFromResolved, anglePropsFromPicks, normalizeSweep } from '../angleMarkMath';
+import {
+  angleFromResolved,
+  anglePropsFromPicks,
+  isRightAngle,
+  normalizeSweep,
+  rightAnglePoints,
+} from '../angleMarkMath';
 
 describe('normalizeSweep', () => {
   it('(-180,180]へ正規化する', () => {
@@ -8,6 +14,52 @@ describe('normalizeSweep', () => {
     expect(normalizeSweep(270)).toBe(-90);
     expect(normalizeSweep(-270)).toBe(90);
     expect(normalizeSweep(180)).toBe(180);
+  });
+});
+
+describe('isRightAngle', () => {
+  it('±90°付近(既定許容0.5°)を直角とみなす', () => {
+    expect(isRightAngle(90)).toBe(true);
+    expect(isRightAngle(-90)).toBe(true);
+    expect(isRightAngle(90.4)).toBe(true);
+    expect(isRightAngle(89.6)).toBe(true);
+    // 270°は正規化で-90°→直角
+    expect(isRightAngle(270)).toBe(true);
+  });
+
+  it('直角から離れていればfalse', () => {
+    expect(isRightAngle(60)).toBe(false);
+    expect(isRightAngle(91)).toBe(false);
+    expect(isRightAngle(0)).toBe(false);
+    expect(isRightAngle(180)).toBe(false);
+  });
+
+  it('許容誤差を広げれば判定が緩む', () => {
+    expect(isRightAngle(93, 0.5)).toBe(false);
+    expect(isRightAngle(93, 5)).toBe(true);
+  });
+});
+
+describe('rightAnglePoints', () => {
+  it('start=0/sweep=90 で正方形コーナー(コーナーは角の内側)', () => {
+    const [p1, c, p2] = rightAnglePoints(10, 0, 90);
+    // 腕A(0°)上=(10,0)、腕B(90°)上=(0,10)、コーナー=(10,10)
+    expect(p1.x).toBeCloseTo(10);
+    expect(p1.y).toBeCloseTo(0);
+    expect(p2.x).toBeCloseTo(0);
+    expect(p2.y).toBeCloseTo(10);
+    expect(c.x).toBeCloseTo(10);
+    expect(c.y).toBeCloseTo(10);
+  });
+
+  it('sweepが負でもコーナーは角の内側を向く', () => {
+    const [p1, c, p2] = rightAnglePoints(10, 0, -90);
+    expect(p1.x).toBeCloseTo(10);
+    expect(p1.y).toBeCloseTo(0);
+    expect(p2.x).toBeCloseTo(0);
+    expect(p2.y).toBeCloseTo(-10);
+    expect(c.x).toBeCloseTo(10);
+    expect(c.y).toBeCloseTo(-10);
   });
 });
 

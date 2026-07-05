@@ -124,7 +124,7 @@ export const linePlugin: PhysicsObjectPlugin<LineProps> = {
     else s0 = Math.min(s, s1 - 1);
     return { ...props, length: s1 - s0, tangentOffset: -(s0 + s1) / 2 };
   },
-  capabilities: { rotatable: true, scalable: 'none' },
+  capabilities: { rotatable: true, scalable: 'none', construction: true },
   placement: 'drag-line',
   createFromDrag(start, end) {
     const { length, transform } = lineFromDrag(start, end, 100);

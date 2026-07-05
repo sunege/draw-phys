@@ -66,12 +66,18 @@ interface DocumentState {
   /** ドラッグ開始時のtransformを渡し、現在値との差分を履歴へ1エントリで記録する */
   commitTransforms(before: Record<string, Transform>): void;
   /**
-   * 単一オブジェクトの transform / props を一時更新する(履歴に残さない)。
-   * 拡大縮小のprops反映・端点編集など、props と transform が同時に変わる操作用。
+   * 単一オブジェクトの transform / props / refs を一時更新する(履歴に残さない)。
+   * 拡大縮小のprops反映・端点編集など、props と transform(と拘束)が同時に変わる操作用。
    */
-  setObjectTransient(id: string, patch: { transform?: Transform; props?: Record<string, unknown> }): void;
-  /** 開始時の transform / props を渡し、現在値との差分を履歴へ1エントリで記録する */
-  commitObject(id: string, before: { transform: Transform; props: Record<string, unknown> }): void;
+  setObjectTransient(
+    id: string,
+    patch: { transform?: Transform; props?: Record<string, unknown>; refs?: ObjectRef[] },
+  ): void;
+  /** 開始時の transform / props / refs を渡し、現在値との差分を履歴へ1エントリで記録する */
+  commitObject(
+    id: string,
+    before: { transform: Transform; props: Record<string, unknown>; refs?: ObjectRef[] },
+  ): void;
 
   setSelection(ids: string[]): void;
   toggleSelection(id: string): void;
@@ -84,8 +90,11 @@ interface DocumentState {
   alignSelection(mode: AlignMode): void;
   /** 重なり順の変更 */
   reorderSelection(mode: ReorderMode): void;
-  /** ロック/表示状態の変更(履歴に残る) */
-  setObjectFlags(ids: string[], flags: { locked?: boolean; visible?: boolean }): void;
+  /** ロック/表示/コンストラクション状態の変更(履歴に残る) */
+  setObjectFlags(
+    ids: string[],
+    flags: { locked?: boolean; visible?: boolean; construction?: boolean },
+  ): void;
 
   undo(): void;
   redo(): void;
@@ -229,6 +238,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         ...obj,
         ...(patch.transform ? { transform: patch.transform } : {}),
         ...(patch.props ? { props: patch.props } : {}),
+        ...(patch.refs ? { refs: patch.refs } : {}),
       };
       set({ objects: solveConstraints(objects, pluginRegistry) });
     },
@@ -253,6 +263,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       if (JSON.stringify(cur.props) !== JSON.stringify(before.props)) {
         redo.push({ op: 'replace', path: [id, 'props'], value: cur.props });
         undo.push({ op: 'replace', path: [id, 'props'], value: before.props });
+      }
+      // refs(拘束)も渡されていれば差分を記録する(端点ドラッグでのlocalAnchor更新など)
+      if (before.refs !== undefined && JSON.stringify(cur.refs ?? null) !== JSON.stringify(before.refs)) {
+        redo.push({ op: 'replace', path: [id, 'refs'], value: cur.refs });
+        undo.push({ op: 'replace', path: [id, 'refs'], value: before.refs });
       }
       if (redo.length === 0) return;
       set({
@@ -381,6 +396,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           if (!obj) continue;
           if (flags.locked !== undefined) obj.locked = flags.locked;
           if (flags.visible !== undefined) obj.visible = flags.visible;
+          if (flags.construction !== undefined) obj.construction = flags.construction;
         }
       });
     },
@@ -416,9 +432,12 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
 
     loadObjects(objects) {
       // 欠損ターゲットへのrefを除去してから拘束を解決する
+      // (自由基準点を持つ一致拘束は対象が無くても保持する)
       for (const obj of Object.values(objects)) {
         if (!obj.refs) continue;
-        const kept = obj.refs.filter((r) => objects[r.targetId]);
+        const kept = obj.refs.filter(
+          (r) => objects[r.targetId] || (r.role === 'coincident' && r.worldAnchor),
+        );
         if (kept.length) obj.refs = kept;
         else delete obj.refs;
       }

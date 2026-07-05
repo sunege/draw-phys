@@ -113,4 +113,12 @@ describe('ロック・表示', () => {
     expect(state().objects[a.id]?.locked).toBe(false);
     expect(state().objects[a.id]?.visible).toBe(true);
   });
+
+  it('コンストラクションフラグを設定でき、Undoで戻る', () => {
+    const a = add(0, 0);
+    state().setObjectFlags([a.id], { construction: true });
+    expect(state().objects[a.id]?.construction).toBe(true);
+    state().undo();
+    expect(state().objects[a.id]?.construction).toBeFalsy();
+  });
 });

@@ -14,6 +14,7 @@ export interface OperationTool {
 
 export const TANGENT_TOOL = 'tangent';
 export const PARALLEL_TOOL = 'parallel';
+export const PERPENDICULAR_TOOL = 'perpendicular';
 export const COINCIDENT_TOOL = 'coincident';
 
 export const OPERATION_TOOLS: OperationTool[] = [
@@ -44,6 +45,18 @@ export const OPERATION_TOOLS: OperationTool[] = [
           strokeLinecap="round"
           strokeLinejoin="round"
         />
+      </svg>
+    ),
+  },
+  {
+    id: PERPENDICULAR_TOOL,
+    name: '垂直',
+    category: '拘束',
+    Icon: () => (
+      <svg width="20" height="20" viewBox="0 0 24 24">
+        <line x1="6" y1="4" x2="6" y2="20" stroke="currentColor" strokeWidth="2" />
+        <line x1="6" y1="20" x2="20" y2="20" stroke="currentColor" strokeWidth="2" />
+        <rect x="6" y="15" width="5" height="5" fill="none" stroke="currentColor" strokeWidth="1.2" />
       </svg>
     ),
   },

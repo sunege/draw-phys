@@ -1,4 +1,4 @@
-import { angleOfVector, lineLineIntersection } from '../../core/geometry';
+import { angleOfVector, lineLineIntersection, pointOnCircleAtAngle } from '../../core/geometry';
 import type { ResolvedRef, SegmentPick } from '../../core/plugin';
 import type { ObjectRef, Point } from '../../core/types';
 
@@ -7,6 +7,26 @@ export function normalizeSweep(deg: number): number {
   let d = ((deg % 360) + 360) % 360;
   if (d > 180) d -= 360;
   return d;
+}
+
+/** 掃引角が直角(±90°)とみなせるか。tol は許容誤差(度) */
+export function isRightAngle(sweep: number, tol = 0.5): boolean {
+  return Math.abs(Math.abs(normalizeSweep(sweep)) - 90) <= tol;
+}
+
+/**
+ * 直角マーク(正方形コーナー)の3点。頂点=原点、start方向と start+sweep 方向に
+ * 一辺 size の正方形の角を作る。返り値は [腕A上の点, コーナー, 腕B上の点]。
+ * コーナーは2腕の内側(角の内部)を向く。
+ */
+export function rightAnglePoints(
+  size: number,
+  startDeg: number,
+  sweepDeg: number,
+): [Point, Point, Point] {
+  const p1 = pointOnCircleAtAngle({ x: 0, y: 0 }, size, startDeg);
+  const p2 = pointOnCircleAtAngle({ x: 0, y: 0 }, size, startDeg + sweepDeg);
+  return [p1, { x: p1.x + p2.x, y: p1.y + p2.y }, p2];
 }
 
 /** 1つの線分ピックから、頂点を基準にした腕の外向き方向と符号(mode)を求める */

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { resolveRef } from '../core/constraints';
+import { findRotationLock, resolveCoincidentAnchor, resolveRef } from '../core/constraints';
 import type { SceneObjects } from '../core/document';
 import { angleOfVector, localToWorld } from '../core/geometry';
 import { pluginRegistry } from '../core/registry';
@@ -46,6 +46,44 @@ function ParallelGlyph({
       />
       <path d={chevron(0)} fill="none" stroke={COLOR} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
       <path d={chevron(gap)} fill="none" stroke={COLOR} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
+    </g>
+  );
+}
+
+/**
+ * 垂直拘束を表す直角マーク(L字)。基準の向き(+x)に沿って描き、
+ * 直角側(-y)が拘束されたオブジェクトの向きを指す。data-constraint 付きでクリック可能。
+ */
+function PerpendicularGlyph({
+  at,
+  angle,
+  zoom,
+  objectId,
+}: {
+  at: Point;
+  angle: number;
+  zoom: number;
+  objectId: string;
+}) {
+  const s = 8 / zoom;
+  const sw = 2 / zoom;
+  return (
+    <g
+      data-constraint={objectId}
+      data-constraint-role="perpendicular"
+      transform={`translate(${at.x} ${at.y}) rotate(${angle})`}
+      style={{ cursor: 'pointer' }}
+    >
+      {/* クリック当たり判定を広げる透明な下敷き */}
+      <rect x={-sw} y={-s - sw} width={s + sw * 2} height={s + sw * 2} fill="transparent" />
+      <path
+        d={`M ${s} 0 L ${s} ${-s} L 0 ${-s}`}
+        fill="none"
+        stroke={COLOR}
+        strokeWidth={sw}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </g>
   );
 }
@@ -127,33 +165,36 @@ export function ConstraintMarkers() {
     const plugin = pluginRegistry.get(obj.pluginId);
     if (!plugin) continue;
 
-    const parallel = obj.refs.find((r) => r.role === 'parallel');
-    if (parallel) {
-      // 自オブジェクト側: 局所バウンディング上辺の中点(=局所x方向=平行方向のエッジ)
+    const rotLock = findRotationLock(obj.refs);
+    if (rotLock) {
+      // 自オブジェクト側: 局所バウンディング上辺の中点(=局所x方向=向きのエッジ)
       const b = plugin.getBounds(obj.props);
       const objAt = localToWorld({ x: b.x + b.width / 2, y: b.y }, obj.transform);
+      const rm = referenceMarker(rotLock, objects);
+      const Glyph = rotLock.role === 'perpendicular' ? PerpendicularGlyph : ParallelGlyph;
       markers.push(
-        <ParallelGlyph key={`${obj.id}-p`} at={objAt} angle={obj.transform.rotation} zoom={zoom} objectId={obj.id} />,
+        <Glyph key={`${obj.id}-r`} at={objAt} angle={obj.transform.rotation} zoom={zoom} objectId={obj.id} />,
       );
-      const rm = referenceMarker(parallel, objects);
       if (rm) {
         markers.push(
-          <ParallelGlyph key={`${obj.id}-pr`} at={rm.at} angle={rm.angle} zoom={zoom} objectId={obj.id} />,
+          <Glyph key={`${obj.id}-rr`} at={rm.at} angle={rm.angle} zoom={zoom} objectId={obj.id} />,
         );
       }
-      if (focused?.objectId === obj.id && focused.role === 'parallel') {
-        markers.push(<RemovePill key={`${obj.id}-pp`} at={objAt} zoom={zoom} objectId={obj.id} role="parallel" />);
+      if (focused?.objectId === obj.id && focused.role === rotLock.role) {
+        markers.push(
+          <RemovePill key={`${obj.id}-rp`} at={objAt} zoom={zoom} objectId={obj.id} role={rotLock.role} />,
+        );
       }
     }
 
     const coincident = obj.refs.find((r) => r.role === 'coincident');
     if (coincident) {
-      const resolved = resolveRef(coincident, objects, pluginRegistry);
-      if (resolved) {
-        markers.push(<CoincidentGlyph key={`${obj.id}-c`} at={resolved.point} zoom={zoom} objectId={obj.id} />);
+      const at = resolveCoincidentAnchor(coincident, objects, pluginRegistry);
+      if (at) {
+        markers.push(<CoincidentGlyph key={`${obj.id}-c`} at={at} zoom={zoom} objectId={obj.id} />);
         if (focused?.objectId === obj.id && focused.role === 'coincident') {
           markers.push(
-            <RemovePill key={`${obj.id}-cp`} at={resolved.point} zoom={zoom} objectId={obj.id} role="coincident" />,
+            <RemovePill key={`${obj.id}-cp`} at={at} zoom={zoom} objectId={obj.id} role="coincident" />,
           );
         }
       }

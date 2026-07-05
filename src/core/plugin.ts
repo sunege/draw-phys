@@ -56,6 +56,12 @@ export interface PluginCapabilities {
   rotatable?: boolean;
   /** 'x' はローカルX軸方向(線の長さ方向)のみ拡大縮小可 */
   scalable?: 'both' | 'uniform' | 'x' | 'none';
+  /**
+   * 作図の補助線(コンストラクション)に切り替えられるか。
+   * true のオブジェクトは「コンストラクション」トグルが有効になり、
+   * ON のとき色付き点線で描かれ書き出しから除外される(線・円が対象)。
+   */
+  construction?: boolean;
 }
 
 /** 端点編集(2端点をドラッグして形状を決める)を行う結果 */

@@ -40,8 +40,9 @@ export interface ObjectRef {
   /**
    * 依存側プラグインが解釈するスロット名(例 'a' | 'b' | 'p0' | 'p1' | 'anchor')。
    * 本体ソルバが直接処理する予約ロール(プラグイン種別を問わない):
-   * - 'parallel'   自オブジェクトの回転を基準線分と平行に保つ
-   * - 'coincident' 自オブジェクトの局所アンカーを基準点に一致させ追従させる(一致/接続)
+   * - 'parallel'      自オブジェクトの回転を基準線分と平行に保つ(angleOffset 0/180)
+   * - 'perpendicular' 自オブジェクトの回転を基準線分と垂直に保つ(angleOffset ±90)
+   * - 'coincident'    自オブジェクトの局所アンカーを基準点に一致させ追従させる(一致/接続)
    */
   role: string;
   /** 参照先オブジェクトID */
@@ -57,8 +58,8 @@ export interface ObjectRef {
   /** 依存側の解釈用オプション(例 'radius' | 'diameter') */
   mode?: string;
   /**
-   * 平行拘束(role:'parallel')で、基準の向きに加える角度オフセット(度)。
-   * 拘束時に「最小回転で平行」になるよう 0 か 180 を焼き込む。
+   * 平行/垂直拘束で、基準の向きに加える角度オフセット(度)。
+   * 拘束時に「最小回転」になるよう平行は 0/180、垂直は ±90 を焼き込む。
    */
   angleOffset?: number;
   /**
@@ -66,4 +67,10 @@ export interface ObjectRef {
    * 局所アンカー点(オブジェクト中心=原点)。拘束時にスナップ点を焼き込む。
    */
   localAnchor?: Point;
+  /**
+   * 一致拘束(role:'coincident')で、どのオブジェクトにも接続していない自由な
+   * 基準点(ワールド座標)。targetId が解決できないときに使う。一致点をドラッグして
+   * オブジェクトから離した場合に焼き込まれ、保存・Undo/Redoにそのまま乗る。
+   */
+  worldAnchor?: Point;
 }

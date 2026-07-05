@@ -13,6 +13,11 @@ export interface SceneObject {
   locked: boolean;
   visible: boolean;
   groupId?: string;
+  /**
+   * 作図補助線(コンストラクション)。true のとき色付き点線で描き、
+   * スナップ・拘束は通常どおり働くが、書き出し(出力)には一切含めない。
+   */
+  construction?: boolean;
   /** 他オブジェクトへの参照(拘束)。ソルバが対象位置から transform/props を再構築する */
   refs?: ObjectRef[];
   /** プラグイン固有のプロパティ */

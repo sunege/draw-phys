@@ -11,7 +11,13 @@ import {
   type LabelDecoProps,
 } from '../basic/objectLabel';
 import { MarkLabel, type LabelMode } from './MarkLabel';
-import { angleFromResolved, anglePropsFromPicks, normalizeSweep } from './angleMarkMath';
+import {
+  angleFromResolved,
+  anglePropsFromPicks,
+  isRightAngle,
+  normalizeSweep,
+  rightAnglePoints,
+} from './angleMarkMath';
 
 interface AngleMarkProps extends LabelDecoProps {
   /** 腕Aの向き(度)。頂点=局所原点 */
@@ -123,18 +129,27 @@ export const angleMarkPlugin: PhysicsObjectPlugin<AngleMarkProps> = {
   Renderer: ({ props, transform, objectId, interactive }) => {
     const sweep = normalizeSweep(props.endAngle - props.startAngle);
     const labelPos = labelAnchor(props);
-    const arcs: number[] =
-      Number(props.count) >= 2 ? [props.radius, props.radius - props.gap] : [props.radius];
+    const double = Number(props.count) >= 2;
+    const rightAngle = isRightAngle(sweep);
+    let paths: string[];
+    if (rightAngle) {
+      // 直角マーク: 半径R相当の正方形コーナー(辺=R/√2でコーナーが半径R上に来る)
+      const base = props.radius / Math.SQRT2;
+      const sizes = double ? [base, base - props.gap] : [base];
+      paths = sizes.map((s) => {
+        const [p1, c, p2] = rightAnglePoints(s, props.startAngle, sweep);
+        return `M ${p1.x} ${p1.y} L ${c.x} ${c.y} L ${p2.x} ${p2.y}`;
+      });
+    } else {
+      const radii = double ? [props.radius, props.radius - props.gap] : [props.radius];
+      paths = radii.map((r) => markArcPath(r, props.startAngle, sweep));
+    }
+    // 直角のときは実測値(90°)の表示は冗長なので省く(LaTeX/カスタムは残す)
+    const labelMode = rightAngle && props.labelMode === 'value' ? 'none' : props.labelMode;
     return (
       <g>
-        {arcs.map((r, i) => (
-          <path
-            key={i}
-            d={markArcPath(r, props.startAngle, sweep)}
-            fill="none"
-            stroke={props.stroke}
-            strokeWidth={props.strokeWidth}
-          />
+        {paths.map((d, i) => (
+          <path key={i} d={d} fill="none" stroke={props.stroke} strokeWidth={props.strokeWidth} />
         ))}
         <MarkLabel
           x={labelPos.x}
@@ -142,7 +157,7 @@ export const angleMarkPlugin: PhysicsObjectPlugin<AngleMarkProps> = {
           dx={props.labelDx}
           dy={props.labelDy}
           rotation={transform?.rotation ?? 0}
-          mode={props.labelMode}
+          mode={labelMode}
           text={labelText(props)}
           latex={props.latex}
           fontSize={props.fontSize}

@@ -3,6 +3,7 @@ import { transformToString } from '../core/geometry';
 import { pluginRegistry } from '../core/registry';
 import { useKatexFontsTick } from '../plugins/basic/katexFonts';
 import { useDocumentStore } from '../state/documentStore';
+import { ConstructionView } from './ConstructionView';
 
 /** 全オブジェクトをzIndex順に、各プラグインのRendererで描画する */
 export function ObjectsLayer() {
@@ -18,12 +19,16 @@ export function ObjectsLayer() {
         if (!plugin) return null;
         return (
           <g key={obj.id} data-object-id={obj.id} transform={transformToString(obj.transform)}>
-            <plugin.Renderer
-              props={obj.props}
-              transform={obj.transform}
-              objectId={obj.id}
-              interactive
-            />
+            {obj.construction ? (
+              <ConstructionView plugin={plugin} props={obj.props} />
+            ) : (
+              <plugin.Renderer
+                props={obj.props}
+                transform={obj.transform}
+                objectId={obj.id}
+                interactive
+              />
+            )}
           </g>
         );
       })}

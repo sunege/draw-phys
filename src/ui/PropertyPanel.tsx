@@ -1,4 +1,5 @@
 import { fromDisplayAngle, toDisplayAngle } from '../canvas/transformMath';
+import { findRotationLock } from '../core/constraints';
 import type { PropertyField } from '../core/plugin';
 import { pluginRegistry } from '../core/registry';
 import { useDocumentStore, type AlignMode, type ReorderMode } from '../state/documentStore';
@@ -29,8 +30,30 @@ function SelectionActions() {
   const multi = selection.length >= 2;
   const hasGroup = selection.some((id) => objects[id]?.groupId);
 
+  // コンストラクション(補助線)へ切替可能な選択(capability を持つ 線・円 のみ)
+  const constructibleIds = selection.filter(
+    (id) => !!pluginRegistry.get(objects[id]?.pluginId ?? '')?.capabilities?.construction,
+  );
+  const canConstruct = constructibleIds.length > 0 && constructibleIds.length === selection.length;
+  const allConstruction = canConstruct && constructibleIds.every((id) => objects[id]?.construction);
+
   return (
     <div className={styles.actions}>
+      {canConstruct && (
+        <label
+          className={styles.field}
+          title="作図補助線。色付き点線で表示し、スナップ・拘束は通常どおり効くが書き出しには含めない"
+        >
+          <span className={styles.label}>コンストラクション</span>
+          <input
+            type="checkbox"
+            checked={allConstruction}
+            onChange={(e) =>
+              store.setObjectFlags(constructibleIds, { construction: e.target.checked })
+            }
+          />
+        </label>
+      )}
       <div className={styles.actionRow}>
         <button
           type="button"
@@ -247,9 +270,9 @@ export function PropertyPanel() {
   const plugin = obj ? pluginRegistry.get(obj.pluginId) : undefined;
   if (!obj || !plugin) return <aside className={styles.panel} />;
 
-  // 回転角の編集(平行拘束中は回転が固定されるため出さない)
-  const parallelBound = obj.refs?.some((r) => r.role === 'parallel') ?? false;
-  const rotatable = (plugin.capabilities?.rotatable ?? true) && !parallelBound;
+  // 回転角の編集(平行/垂直拘束中は回転が固定されるため出さない)
+  const rotationBound = !!findRotationLock(obj.refs);
+  const rotatable = (plugin.capabilities?.rotatable ?? true) && !rotationBound;
   // 表示は「水平右=0°, 反時計回りが正」。中心まわりに向きだけ変える
   const displayAngle = Math.round(toDisplayAngle(obj.transform.rotation) * 10) / 10;
   const setRotation = (deg: number) => {

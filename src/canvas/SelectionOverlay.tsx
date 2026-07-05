@@ -1,3 +1,4 @@
+import { findRotationLock } from '../core/constraints';
 import type { SceneObject } from '../core/document';
 import { unionRects, worldBounds } from '../core/geometry';
 import { pluginRegistry } from '../core/registry';
@@ -49,9 +50,9 @@ function SingleSelection({ obj, zoom }: { obj: SceneObject; zoom: number }) {
   const box = scaledBounds(plugin.getBounds(obj.props), t.scaleX, t.scaleY);
   const handleSize = 8 / zoom;
   const scalable = plugin.capabilities?.scalable ?? 'both';
-  // 平行拘束中は回転が基準へ固定されるため、回転ハンドルは出さない
-  const parallelBound = obj.refs?.some((r) => r.role === 'parallel') ?? false;
-  const rotatable = (plugin.capabilities?.rotatable ?? true) && !parallelBound;
+  // 平行/垂直拘束中は回転が基準へ固定されるため、回転ハンドルは出さない
+  const rotationBound = !!findRotationLock(obj.refs);
+  const rotatable = (plugin.capabilities?.rotatable ?? true) && !rotationBound;
   const rotHandleOffset = 20 / zoom;
   const centerX = box.x + box.width / 2;
   // 円拘束された線の接点(ローカル位置)。接続点ハンドルと端点重なり判定に使う

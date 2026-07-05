@@ -81,6 +81,6 @@ export const circlePlugin: PhysicsObjectPlugin<CircleProps> = {
   ],
   getCircle: (props) => ({ center: { x: 0, y: 0 }, radius: props.radius }),
   applyScale: (props, fx) => ({ ...props, radius: props.radius * fx }),
-  capabilities: { rotatable: false, scalable: 'uniform' },
+  capabilities: { rotatable: false, scalable: 'uniform', construction: true },
   placement: 'click',
 };

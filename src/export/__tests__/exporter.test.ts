@@ -31,6 +31,24 @@ describe('exporter', () => {
     expect(region).toEqual({ x: -60, y: -35, width: 120, height: 70 });
   });
 
+  it('コンストラクション(補助線)は領域計算から除外される', () => {
+    const { registry, plugin } = setup();
+    const a = createSceneObject(plugin, { x: 0, y: 0 }, 1);
+    const guide = { ...createSceneObject(plugin, { x: 999, y: 999 }, 2), construction: true };
+    const region = contentRegion([a, guide], registry);
+    // 補助線は含めない → aだけの領域
+    expect(region).toEqual({ x: -60, y: -35, width: 120, height: 70 });
+  });
+
+  it('コンストラクションは書き出しSVGの本体に含まれない', async () => {
+    const { registry, plugin } = setup();
+    const normal = createSceneObject(plugin, { x: 10, y: 20 }, 1);
+    const guide = { ...createSceneObject(plugin, { x: 300, y: 300 }, 2), construction: true };
+    const svg = await buildSvgString([normal, guide], { x: 0, y: 0, width: 400, height: 400 }, registry);
+    expect(svg).toContain('translate(10 20)'); // 通常オブジェクトは含まれる
+    expect(svg).not.toContain('translate(300 300)'); // 補助線は除外される
+  });
+
   it('buildSvgStringはviewBoxとオブジェクトのtransformを含む', async () => {
     const { registry, plugin } = setup();
     const obj = createSceneObject(plugin, { x: 10, y: 20 }, 1);

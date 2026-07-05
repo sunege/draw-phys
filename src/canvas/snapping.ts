@@ -1,3 +1,4 @@
+import { localSnapPoints } from '../core/constraints';
 import type { SceneObjects } from '../core/document';
 import {
   angleOfVector,
@@ -109,6 +110,85 @@ export function snapEndpoint(params: {
   const { best } = holder;
   // オブジェクト候補がグリッド点以下の距離なら、グリッド外でもオブジェクトへ吸着する
   if (best && best.dist <= gridDist) return { point: best.p, marker: best.p, attach: best.attach };
+  return { point: gridPt };
+}
+
+/** 一致拘束の基準点を吸着したときの接続先(kind 別) */
+export type AnchorBind =
+  | { targetId: string; kind: 'point'; pointIndex: number }
+  | { targetId: string; kind: 'segment'; segIndex: number; t: number }
+  | { targetId: string; kind: 'circle'; t: number };
+
+export interface AnchorSnapResult {
+  point: Point;
+  /** オブジェクトへ吸着したときの位置(マーカー表示用) */
+  marker?: Point;
+  /** 吸着先(あれば接続。無ければ自由座標=point) */
+  bind?: AnchorBind;
+}
+
+/**
+ * 一致点(coincidentの基準点)ドラッグのスナップ。
+ * 他オブジェクトのスナップ点(角・端点・中心)・線分上の最近点・円周上の最近点を候補にし、
+ * グリッド点より近ければオブジェクトへ吸着して接続情報(bind)を返す。
+ * スナップ点(角・中心)は同距離なら線分/円より優先する(離散点の方が意味を持つ)。
+ * スナップ無効なら生の点(自由座標)を返す。
+ */
+export function snapAnchorPoint(params: {
+  point: Point;
+  objects: SceneObjects;
+  registry: PluginRegistry;
+  excludeIds: Set<string>;
+  snapEnabled: boolean;
+  gridSize: number;
+  threshold: number;
+}): AnchorSnapResult {
+  const { point, objects, registry, excludeIds, snapEnabled, gridSize, threshold } = params;
+  if (!snapEnabled) return { point: { ...point } };
+
+  const holder: { best: { p: Point; dist: number; bind: AnchorBind } | null } = { best: null };
+  // 離散スナップ点(kind:'point')は同距離で優先させるため <= 、線分/円は < のみ
+  const consider = (p: Point, bind: AnchorBind, prefer = false) => {
+    const d = distance(point, p);
+    if (d > threshold) return;
+    if (!holder.best || d < holder.best.dist || (prefer && d <= holder.best.dist)) {
+      holder.best = { p, dist: d, bind };
+    }
+  };
+
+  for (const [id, obj] of Object.entries(objects)) {
+    if (excludeIds.has(id) || !obj.visible) continue;
+    const plugin = registry.get(obj.pluginId);
+    if (!plugin) continue;
+    // 離散スナップ点(角・端点・中心)。localSnapPoints の並びは resolveRef と共有する
+    localSnapPoints(plugin, obj.props).forEach((local, index) => {
+      consider(localToWorld(local, obj.transform), { targetId: id, kind: 'point', pointIndex: index }, true);
+    });
+    // 線分上の最近点(パラメタ t を記録)
+    plugin.getSegments?.(obj.props)?.forEach((seg, segIndex) => {
+      const a = localToWorld(seg[0], obj.transform);
+      const b = localToWorld(seg[1], obj.transform);
+      const near = nearestPointOnSegment(point, a, b);
+      const len2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
+      const t = len2 < 1e-9 ? 0 : ((near.x - a.x) * (b.x - a.x) + (near.y - a.y) * (b.y - a.y)) / len2;
+      consider(near, { targetId: id, kind: 'segment', segIndex, t });
+    });
+    // 円周上の最近点(局所角度 t を記録)
+    const circle = plugin.getCircle?.(obj.props);
+    if (circle) {
+      const center = localToWorld(circle.center, obj.transform);
+      const dir = { x: point.x - center.x, y: point.y - center.y };
+      const rw = circle.radius * obj.transform.scaleX;
+      const norm = Math.hypot(dir.x, dir.y) || 1;
+      const edge = { x: center.x + rw * (dir.x / norm), y: center.y + rw * (dir.y / norm) };
+      consider(edge, { targetId: id, kind: 'circle', t: angleOfVector(dir) - obj.transform.rotation });
+    }
+  }
+
+  const gridPt = snapPoint(point, gridSize);
+  const gridDist = distance(point, gridPt);
+  const { best } = holder;
+  if (best && best.dist <= gridDist) return { point: best.p, marker: best.p, bind: best.bind };
   return { point: gridPt };
 }
 

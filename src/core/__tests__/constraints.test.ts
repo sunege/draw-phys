@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { parallelOffset, resolveRef, solveConstraints } from '../constraints';
+import {
+  findRotationLock,
+  parallelOffset,
+  perpendicularOffset,
+  resolveCoincidentAnchor,
+  resolveRef,
+  solveConstraints,
+} from '../constraints';
 import type { SceneObject, SceneObjects } from '../document';
 import { PluginRegistry } from '../registry';
 import { makeTestPlugin } from './testPlugin';
@@ -149,6 +156,91 @@ describe('parallelOffset', () => {
   });
 });
 
+describe('perpendicularOffset', () => {
+  it('現在の回転に近い側(+90 か -90)を返す', () => {
+    expect(perpendicularOffset(40, 0)).toBe(90);
+    expect(perpendicularOffset(-40, 0)).toBe(-90);
+    expect(perpendicularOffset(0, 0)).toBe(90); // 同距離は+90
+    expect(perpendicularOffset(120, 0)).toBe(90);
+    expect(perpendicularOffset(-120, 0)).toBe(-90);
+  });
+
+  it('基準角を考慮する', () => {
+    expect(perpendicularOffset(10, 90)).toBe(-90); // 目標0(=90-90)へ最小回転
+    expect(perpendicularOffset(170, 90)).toBe(90); // 目標180(=90+90)へ
+  });
+});
+
+describe('findRotationLock', () => {
+  it('平行または垂直のrefを返し、無ければundefined', () => {
+    const par = { role: 'parallel', targetId: 's', kind: 'segment' as const };
+    const perp = { role: 'perpendicular', targetId: 's', kind: 'segment' as const };
+    expect(findRotationLock([par])?.role).toBe('parallel');
+    expect(findRotationLock([perp])?.role).toBe('perpendicular');
+    expect(findRotationLock([{ role: 'coincident', targetId: 's', kind: 'point' }])).toBeUndefined();
+    expect(findRotationLock(undefined)).toBeUndefined();
+  });
+});
+
+describe('垂直拘束(role: perpendicular)', () => {
+  function perpRef(targetId: string, angleOffset: number) {
+    return { role: 'perpendicular', targetId, kind: 'segment' as const, segIndex: 0, t: 0.5, angleOffset };
+  }
+
+  it('水平な基準線分に対し依存を垂直(rotation=90)へ揃える', () => {
+    const objects: SceneObjects = {
+      s: obj('s', 'test.seg', 100, 100),
+      d: obj('d', 'test.dep', 300, 300, {
+        transform: { x: 300, y: 300, rotation: 40, scaleX: 1, scaleY: 1 },
+        refs: [perpRef('s', 90)],
+      }),
+    };
+    const solved = solveConstraints(objects, registry);
+    expect(solved.d.transform.rotation).toBeCloseTo(90);
+    // 位置は変えない(向きだけの拘束)
+    expect(solved.d.transform.x).toBeCloseTo(300);
+    expect(solved.d.transform.y).toBeCloseTo(300);
+  });
+
+  it('angleOffset -90 で逆向きの垂直(rotation=-90)へ揃える', () => {
+    const objects: SceneObjects = {
+      s: obj('s', 'test.seg', 100, 100),
+      d: obj('d', 'test.dep', 0, 0, { refs: [perpRef('s', -90)] }),
+    };
+    const solved = solveConstraints(objects, registry);
+    expect(solved.d.transform.rotation).toBeCloseTo(-90);
+  });
+
+  it('基準を回転させると依存も垂直を保って追従する', () => {
+    const objects: SceneObjects = {
+      s: obj('s', 'test.seg', 100, 100, {
+        transform: { x: 100, y: 100, rotation: 30, scaleX: 1, scaleY: 1 },
+      }),
+      d: obj('d', 'test.dep', 0, 0, { refs: [perpRef('s', 90)] }),
+    };
+    const solved = solveConstraints(objects, registry);
+    // 基準30° + 90 = 120°
+    expect(solved.d.transform.rotation).toBeCloseTo(120);
+  });
+
+  it('垂直と一致を同時に適用できる(回転=垂直 / 位置=一致)', () => {
+    const objects: SceneObjects = {
+      seg: obj('seg', 'test.seg', 300, 300),
+      pt: obj('pt', 'test.snap', 100, 100),
+      d: obj('d', 'test.dep', 0, 0, {
+        refs: [
+          perpRef('seg', 90),
+          { role: 'coincident', targetId: 'pt', kind: 'point', pointIndex: 0, localAnchor: { x: 0, y: 0 } },
+        ],
+      }),
+    };
+    const solved = solveConstraints(objects, registry);
+    expect(solved.d.transform.rotation).toBeCloseTo(90);
+    expect(solved.d.transform.x).toBeCloseTo(100);
+    expect(solved.d.transform.y).toBeCloseTo(100);
+  });
+});
+
 describe('平行拘束(role: parallel)', () => {
   function parallelRef(targetId: string, angleOffset = 0) {
     return {
@@ -208,6 +300,37 @@ describe('平行拘束(role: parallel)', () => {
   });
 });
 
+describe('resolveCoincidentAnchor', () => {
+  it('対象があればスナップ点を返す', () => {
+    const objects: SceneObjects = { s: obj('s', 'test.snap', 100, 100) };
+    const at = resolveCoincidentAnchor(
+      { role: 'coincident', targetId: 's', kind: 'point', pointIndex: 1 },
+      objects,
+      registry,
+    );
+    expect(at?.x).toBeCloseTo(150);
+    expect(at?.y).toBeCloseTo(75);
+  });
+
+  it('対象がなくても worldAnchor を返す(自由基準点)', () => {
+    const at = resolveCoincidentAnchor(
+      { role: 'coincident', targetId: '', kind: 'point', worldAnchor: { x: 20, y: 30 } },
+      {},
+      registry,
+    );
+    expect(at).toEqual({ x: 20, y: 30 });
+  });
+
+  it('対象もworldAnchorも無ければnull', () => {
+    const at = resolveCoincidentAnchor(
+      { role: 'coincident', targetId: 'missing', kind: 'point' },
+      {},
+      registry,
+    );
+    expect(at).toBeNull();
+  });
+});
+
 describe('resolveRef kind:point', () => {
   it('対象のスナップ点をワールド座標で返す', () => {
     const objects: SceneObjects = { s: obj('s', 'test.snap', 100, 100) };
@@ -264,6 +387,48 @@ describe('一致/接続(role: coincident)', () => {
     // 局所(10,0)を90°回すと(0,10)。中心+(0,10)=(100,100) → 中心=(100,90)
     expect(solved.d.transform.x).toBeCloseTo(100);
     expect(solved.d.transform.y).toBeCloseTo(90);
+  });
+
+  it('対象なし+worldAnchorの自由基準点へ追従する', () => {
+    const objects: SceneObjects = {
+      d: obj('d', 'test.dep', 0, 0, {
+        refs: [
+          {
+            role: 'coincident',
+            targetId: '',
+            kind: 'point',
+            localAnchor: { x: 10, y: 5 },
+            worldAnchor: { x: 200, y: 100 },
+          },
+        ],
+      }),
+    };
+    const solved = solveConstraints(objects, registry);
+    // 局所(10,5)がworldAnchor(200,100)に来る → 中心=(190,95)
+    expect(solved.d.transform.x).toBeCloseTo(190);
+    expect(solved.d.transform.y).toBeCloseTo(95);
+  });
+
+  it('対象が解決できれば worldAnchor より対象スナップ点を優先する', () => {
+    const objects: SceneObjects = {
+      s: obj('s', 'test.snap', 100, 100),
+      d: obj('d', 'test.dep', 0, 0, {
+        refs: [
+          {
+            role: 'coincident',
+            targetId: 's',
+            kind: 'point',
+            pointIndex: 0,
+            localAnchor: { x: 0, y: 0 },
+            worldAnchor: { x: 999, y: 999 },
+          },
+        ],
+      }),
+    };
+    const solved = solveConstraints(objects, registry);
+    // 対象s中心(100,100)へ。worldAnchorは無視される
+    expect(solved.d.transform.x).toBeCloseTo(100);
+    expect(solved.d.transform.y).toBeCloseTo(100);
   });
 
   it('平行と一致を同時に適用できる(回転=平行 / 位置=一致)', () => {

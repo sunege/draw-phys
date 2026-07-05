@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { makeTestPlugin } from '../../core/__tests__/testPlugin';
 import { createSceneObject, type SceneObjects } from '../../core/document';
 import { PluginRegistry } from '../../core/registry';
-import { snapEndpoint, snapMovement, snapWorldPoint } from '../snapping';
+import { snapAnchorPoint, snapEndpoint, snapMovement, snapWorldPoint } from '../snapping';
 
 // 100x50 中心原点のテストプラグイン(スナップ点はバウンディング角+中心)
 const plugin = makeTestPlugin();
@@ -122,5 +122,72 @@ describe('snapEndpoint', () => {
     const r = snapEndpoint({ ...base, objects, point: { x: 300, y: 300 } });
     expect(r.point).toEqual({ x: 320, y: 320 }); // 40グリッド
     expect(r.marker).toBeUndefined();
+  });
+});
+
+describe('snapAnchorPoint', () => {
+  // スナップ点(中心=index0, 右端=index1)+水平線分を持つプラグイン
+  const anchorPlugin = makeTestPlugin({
+    getSnapPoints: (p) => [
+      { x: 0, y: 0 },
+      { x: p.width / 2, y: 0 },
+    ],
+    getSegments: (p) => [
+      [
+        { x: -p.width / 2, y: 0 },
+        { x: p.width / 2, y: 0 },
+      ],
+    ],
+  });
+  const registry = new PluginRegistry();
+  registry.register(anchorPlugin);
+
+  const base = {
+    registry,
+    excludeIds: new Set<string>(),
+    snapEnabled: true,
+    gridSize: 40,
+    threshold: 6,
+  };
+
+  function anchorObjects() {
+    const o = createSceneObject(anchorPlugin, { x: 100, y: 100 }, 1);
+    return { objects: { [o.id]: o } as SceneObjects, id: o.id };
+  }
+
+  it('スナップ無効時は元の点を返し、bindは無い', () => {
+    const { objects } = anchorObjects();
+    const r = snapAnchorPoint({ ...base, objects, point: { x: 152, y: 101 }, snapEnabled: false });
+    expect(r.point).toEqual({ x: 152, y: 101 });
+    expect(r.bind).toBeUndefined();
+  });
+
+  it('離散スナップ点(右端 index1)へ吸着し pointIndex を返す', () => {
+    const { objects, id } = anchorObjects();
+    // 右端はワールド(150,100)
+    const r = snapAnchorPoint({ ...base, objects, point: { x: 152, y: 101 } });
+    expect(r.point.x).toBeCloseTo(150);
+    expect(r.point.y).toBeCloseTo(100);
+    expect(r.bind).toEqual({ targetId: id, kind: 'point', pointIndex: 1 });
+  });
+
+  it('スナップ点から外れた線分上では kind:segment と t を返す', () => {
+    const { objects, id } = anchorObjects();
+    // 線分ワールド(50,100)-(150,100)。x=120 はスナップ点(100/150)から>6離れた線分上
+    const r = snapAnchorPoint({ ...base, objects, point: { x: 120, y: 102 } });
+    expect(r.point.x).toBeCloseTo(120);
+    expect(r.point.y).toBeCloseTo(100);
+    expect(r.bind?.kind).toBe('segment');
+    if (r.bind?.kind === 'segment') {
+      expect(r.bind.targetId).toBe(id);
+      expect(r.bind.t).toBeCloseTo(0.7); // (120-50)/100
+    }
+  });
+
+  it('どこにも近くなければグリッドへ吸着し bind は無い', () => {
+    const { objects } = anchorObjects();
+    const r = snapAnchorPoint({ ...base, objects, point: { x: 300, y: 300 } });
+    expect(r.point).toEqual({ x: 320, y: 320 });
+    expect(r.bind).toBeUndefined();
   });
 });
