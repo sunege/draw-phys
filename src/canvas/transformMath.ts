@@ -1,8 +1,26 @@
-import { rotateVec } from '../core/geometry';
+import { angleOfVector, rotateVec } from '../core/geometry';
 import type { AnyPlugin } from '../core/plugin';
 import type { Point, Rect, Transform } from '../core/types';
 
 const MIN_SCALE = 0.05;
+
+/** 角度を(-180, 180]へ正規化する */
+export function normalizeAngle(deg: number): number {
+  return (((deg + 180) % 360) + 360) % 360 - 180;
+}
+
+/**
+ * 内部回転(SVG rotate。画面Yが下向きのため時計回りが正)を、
+ * ユーザー表示用の角度(水平右=0°, 反時計回りが正の物理/数学慣習)へ変換する。
+ */
+export function toDisplayAngle(rotation: number): number {
+  return normalizeAngle(-rotation);
+}
+
+/** 表示角(水平右=0°, 反時計回り正)を内部回転へ戻す */
+export function fromDisplayAngle(display: number): number {
+  return normalizeAngle(-display);
+}
 
 /** スケールハンドルの位置。-1/0/+1 でバウンディングボックスの左/中央/右(上/中央/下)を表す */
 export interface HandleDir {
@@ -142,7 +160,28 @@ export function computeRotationDrag(
   let rotation =
     (Math.atan2(worldPoint.y - before.y, worldPoint.x - before.x) * 180) / Math.PI + 90;
   if (snapDegrees) rotation = Math.round(rotation / snapDegrees) * snapDegrees;
-  // (-180, 180] に正規化
-  rotation = ((rotation + 180) % 360 + 360) % 360 - 180;
-  return { ...before, rotation };
+  return { ...before, rotation: normalizeAngle(rotation) };
+}
+
+/**
+ * 任意のピボット(回転軸)まわりの回転。
+ * つかんだ点(grab)と現在のポインタの、ピボットに対する角度差だけ回し、
+ * オブジェクトの中心もピボットまわりに移動させる(ピボット=中心なら中心回転)。
+ * スナップ時は結果の回転角を snapDegrees 刻みへ丸める。
+ */
+export function computeRotationAboutPivot(
+  before: Transform,
+  pivot: Point,
+  grab: Point,
+  pointer: Point,
+  snapDegrees?: number,
+): Transform {
+  const a0 = angleOfVector({ x: grab.x - pivot.x, y: grab.y - pivot.y });
+  const a1 = angleOfVector({ x: pointer.x - pivot.x, y: pointer.y - pivot.y });
+  let rotation = before.rotation + (a1 - a0);
+  if (snapDegrees) rotation = Math.round(rotation / snapDegrees) * snapDegrees;
+  rotation = normalizeAngle(rotation);
+  // 中心をピボットまわりに、実際に回った差分だけ回す
+  const c = rotateVec({ x: before.x - pivot.x, y: before.y - pivot.y }, rotation - before.rotation);
+  return { ...before, rotation, x: pivot.x + c.x, y: pivot.y + c.y };
 }

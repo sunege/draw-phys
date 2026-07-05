@@ -1,14 +1,39 @@
 import type { SceneObject, SceneObjects } from './document';
-import { angleOfVector, distance, localToWorld, pointOnCircleAtAngle } from './geometry';
-import type { ResolvedRef } from './plugin';
+import { angleOfVector, distance, localToWorld, pointOnCircleAtAngle, rectCorners } from './geometry';
+import type { AnyPlugin, ResolvedRef } from './plugin';
 import type { PluginRegistry } from './registry';
 import type { ObjectRef, Point } from './types';
+
+/**
+ * 対象のスナップ点(ローカル座標)。getSnapPoints 未実装なら
+ * バウンディングボックスの四隅+中心で代用する。
+ * 一致/接続のアンカー選択(CanvasStage)と resolveRef で同じ並びを使う。
+ */
+export function localSnapPoints(plugin: AnyPlugin, props: unknown): Point[] {
+  const explicit = plugin.getSnapPoints?.(props);
+  if (explicit && explicit.length) return explicit;
+  const b = plugin.getBounds(props);
+  return [...rectCorners(b), { x: b.x + b.width / 2, y: b.y + b.height / 2 }];
+}
 
 /** 単位ベクトル(ゼロ長なら+x) */
 function normalize(v: Point): Point {
   const len = Math.hypot(v.x, v.y);
   if (len < 1e-9) return { x: 1, y: 0 };
   return { x: v.x / len, y: v.y / len };
+}
+
+/** 角度差を(-180,180]へ正規化 */
+function normDeg(d: number): number {
+  return (((d % 360) + 540) % 360) - 180;
+}
+
+/**
+ * 現在の回転 objRot を基準角 refAngle と「平行」にするための最小回転オフセット。
+ * 平行は向き無視なので 0(同方向) か 180(逆方向) のいずれか近い方を返す。
+ */
+export function parallelOffset(objRot: number, refAngle: number): number {
+  return Math.abs(normDeg(objRot - refAngle)) <= 90 ? 0 : 180;
 }
 
 /**
@@ -37,6 +62,14 @@ export function resolveRef(
     // 角度マークの腕など、線分方向の逆向きを指す参照は mode:'neg' で反転する
     if (ref.mode === 'neg') tangent = { x: -tangent.x, y: -tangent.y };
     return { role: ref.role, point, tangent };
+  }
+
+  if (ref.kind === 'point') {
+    // 対象のスナップ点(pointIndex)をワールド座標で返す(一致/接続の基準点)
+    const pts = localSnapPoints(plugin, target.props);
+    const p = pts[ref.pointIndex ?? 0];
+    if (!p) return null;
+    return { role: ref.role, point: localToWorld(p, target.transform) };
   }
 
   // circle: 対象ローカルで角度tの点を求め、transformでワールドへ。接線・半径も算出
@@ -87,6 +120,37 @@ function solveInto(objs: SceneObjects, registry: PluginRegistry): void {
   for (const id of order) {
     const obj = objs[id];
     if (!obj?.refs?.length) continue;
+
+    // 本体が直接解く汎用拘束(プラグイン種別を問わない)。回転(平行)と位置(一致)は
+    // それぞれ別の成分に作用するため、両方あれば合成できる。
+    const parallel = obj.refs.find((r) => r.role === 'parallel');
+    const coincident = obj.refs.find((r) => r.role === 'coincident');
+    if (parallel || coincident) {
+      let transform = obj.transform;
+      // 平行: 回転だけを基準線分と平行へ揃える
+      if (parallel) {
+        const r = resolveRef(parallel, objs, registry);
+        if (r?.tangent) {
+          transform = { ...transform, rotation: angleOfVector(r.tangent) + (parallel.angleOffset ?? 0) };
+        }
+      }
+      // 一致/接続: 局所アンカーを基準点へ一致させる(平行で回した姿勢のまま平行移動)
+      if (coincident) {
+        const r = resolveRef(coincident, objs, registry);
+        if (r) {
+          const anchor = coincident.localAnchor ?? { x: 0, y: 0 };
+          const cur = localToWorld(anchor, transform);
+          transform = {
+            ...transform,
+            x: transform.x + (r.point.x - cur.x),
+            y: transform.y + (r.point.y - cur.y),
+          };
+        }
+      }
+      obj.transform = transform;
+      continue;
+    }
+
     const plugin = registry.get(obj.pluginId);
     if (!plugin?.applyRefs) continue;
     const resolved: ResolvedRef[] = [];

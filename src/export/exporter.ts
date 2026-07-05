@@ -136,23 +136,21 @@ export async function exportPdf(svgString: string, region: Rect, scale: number):
   return pdf.output('blob');
 }
 
-/** PNG(+可能ならSVGテキスト)をOSクリップボードへコピーする */
-export async function copyToClipboard(svgString: string, region: Rect): Promise<void> {
-  const png = await exportRaster(svgString, region, {
-    scale: 2,
-    format: 'png',
-    transparent: false,
-  });
-  const items: Record<string, Blob> = { 'image/png': png };
-  // SVGを直接受け付ける環境向け(非対応ならPNGのみ)
-  try {
-    await navigator.clipboard.write([
-      new ClipboardItem({
-        ...items,
-        'image/svg+xml': new Blob([svgString], { type: 'image/svg+xml' }),
-      }),
-    ]);
-  } catch {
-    await navigator.clipboard.write([new ClipboardItem(items)]);
-  }
+/**
+ * 図をPNGとしてOSクリップボードへコピーする。
+ *
+ * SVG(image/svg+xml)はあえてクリップボードに載せない。
+ * Windowsの Word/PowerPoint は貼り付け時にSVGを優先するが、
+ * 本アプリのSVGは数式を `<foreignObject>`(KaTeX)で描くため、
+ * それらのSVGレンダラでは数式が消えたり(Word)線幅が異常に太くなる(PowerPoint)。
+ * ペイント等はビットマップのみ扱うため従来から問題が出なかった。
+ * PNG単独にすることで、PNG書き出しと同じ見た目でどのアプリにも貼り付けられる。
+ */
+export async function copyToClipboard(
+  svgString: string,
+  region: Rect,
+  transparent = false,
+): Promise<void> {
+  const png = await exportRaster(svgString, region, { scale: 2, format: 'png', transparent });
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
 }

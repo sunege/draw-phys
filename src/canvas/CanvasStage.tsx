@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { localSnapPoints, parallelOffset } from '../core/constraints';
 import { createSceneObject, type SceneObject } from '../core/document';
 import {
   angleOfVector,
@@ -13,17 +14,19 @@ import type { AnyPlugin, SegmentPick } from '../core/plugin';
 import { pluginRegistry } from '../core/registry';
 import type { ObjectRef, Point, Rect, Transform } from '../core/types';
 import { copySelection, duplicateSelection, pasteClipboard } from '../state/clipboard';
+import { useConstraintStore } from '../state/constraintStore';
 import { expandWithGroups, useDocumentStore } from '../state/documentStore';
 import { useToolStore } from '../state/toolStore';
 import { useViewportStore } from '../state/viewportStore';
+import { ConstraintMarkers } from './ConstraintMarkers';
 import { screenToWorld } from './coords';
 import { GridLayer } from './GridLayer';
 import { ObjectsLayer } from './ObjectsLayer';
 import { SelectionOverlay } from './SelectionOverlay';
 import { snapEndpoint, snapMovement, snapWorldPoint, type EndpointAttach } from './snapping';
-import { TANGENT_TOOL } from './tools';
+import { COINCIDENT_TOOL, PARALLEL_TOOL, TANGENT_TOOL } from './tools';
 import {
-  computeRotationDrag,
+  computeRotationAboutPivot,
   computeScaleDrag,
   computeScaleToProps,
   type HandleDir,
@@ -44,7 +47,17 @@ type DragState =
       uniform: boolean;
       moved: boolean;
     }
-  | { mode: 'rotate'; id: string; before: Transform; moved: boolean }
+  | {
+      mode: 'rotate';
+      id: string;
+      before: Transform;
+      /** 回転軸(ワールド座標)。既定は中心 */
+      pivot: Point;
+      /** つかんだ点(ワールド座標)。回転角の基準にする */
+      grab: Point;
+      moved: boolean;
+    }
+  | { mode: 'rotatePivot'; id: string; moved: boolean }
   | {
       mode: 'endpoint';
       id: string;
@@ -85,8 +98,6 @@ interface PlacementPreview {
 }
 
 interface Guides {
-  x?: number;
-  y?: number;
   /** 端点がオブジェクトへ吸着した位置のマーカー */
   marker?: Point;
 }
@@ -149,6 +160,30 @@ function circleAngleAt(obj: SceneObject, world: Point): number | null {
   return t;
 }
 
+/** 指定ロールの拘束だけを外す(オブジェクト本体・他の拘束は残す) */
+function removeConstraint(id: string, role: string): void {
+  const doc = useDocumentStore.getState();
+  const obj = doc.objects[id];
+  if (!obj?.refs) return;
+  doc.setObjectRefs(
+    id,
+    obj.refs.filter((r) => r.role !== role),
+  );
+}
+
+/** クリック位置に最も近い、対象のスナップ点(局所座標+インデックス)を返す */
+function nearestSnapPoint(obj: SceneObject, world: Point): { local: Point; index: number } | null {
+  const plugin = pluginRegistry.get(obj.pluginId);
+  if (!plugin) return null;
+  const pts = localSnapPoints(plugin, obj.props);
+  const holder: { best: { local: Point; index: number; dist: number } | null } = { best: null };
+  pts.forEach((local, index) => {
+    const d = distance(world, localToWorld(local, obj.transform));
+    if (!holder.best || d < holder.best.dist) holder.best = { local, index, dist: d };
+  });
+  return holder.best ? { local: holder.best.local, index: holder.best.index } : null;
+}
+
 /** 端点吸着の相手情報から追従バインド用の refs を作る */
 function attachToRefs(attach: EndpointAttach): ObjectRef[] {
   if (attach.kind === 'segment') {
@@ -169,15 +204,41 @@ export function CanvasStage() {
   const [panning, setPanning] = useState(false);
   const [guides, setGuides] = useState<Guides>({});
   const [marquee, setMarquee] = useState<Rect | null>(null);
+  /** 回転軸マーカー(赤)。回転ハンドルに触れると表示し、ドラッグで移動できる。選択中のみ有効 */
+  const [rotatePivot, setRotatePivot] = useState<{ id: string; world: Point } | null>(null);
   const [preview, setPreview] = useState<PlacementPreview | null>(null);
   /** pick-segments 配置(角度マーク)で選択済みの線分ピック */
   const [segPicks, setSegPicks] = useState<SegmentPick[]>([]);
   /** 接線モードで先に選択した既存線分のID(省略可) */
   const [tangentLineId, setTangentLineId] = useState<string | null>(null);
+  /** 平行拘束モードで先に選択した「向きを変えるオブジェクト」のID */
+  const [parallelObjId, setParallelObjId] = useState<string | null>(null);
+  /** 一致/接続モードで先に選択した「動かす側」のIDと接続点(局所アンカー) */
+  const [coincidentPick, setCoincidentPick] = useState<{ objId: string; localAnchor: Point } | null>(
+    null,
+  );
 
   const pan = useViewportStore((s) => s.pan);
   const zoom = useViewportStore((s) => s.zoom);
   const activeTool = useToolStore((s) => s.activeTool);
+  const selection = useDocumentStore((s) => s.selection);
+  // 選択が変わり、回転軸マーカーの対象が単独選択でなくなったら隠す
+  useEffect(() => {
+    if (!(selection.length === 1 && rotatePivot && selection[0] === rotatePivot.id)) {
+      setRotatePivot(null);
+    }
+  }, [selection, rotatePivot]);
+  // 拘束モードで1回目に選んだオブジェクト(安定した参照を購読し、枠は描画時に導出)
+  const firstPickId = parallelObjId ?? coincidentPick?.objId ?? null;
+  const firstPickObj = useDocumentStore((s) => (firstPickId ? s.objects[firstPickId] : undefined));
+  const firstPickPlugin = firstPickObj ? pluginRegistry.get(firstPickObj.pluginId) : undefined;
+  const firstPickBounds =
+    firstPickObj && firstPickPlugin
+      ? worldBounds(firstPickPlugin.getBounds(firstPickObj.props), firstPickObj.transform)
+      : null;
+  // 一致/接続モードで選んだ接続点(局所アンカー)のワールド位置
+  const coincidentPickPoint =
+    coincidentPick && firstPickObj ? localToWorld(coincidentPick.localAnchor, firstPickObj.transform) : null;
 
   // コンテナサイズの追従(viewBox計算用)
   useEffect(() => {
@@ -274,12 +335,23 @@ export function CanvasStage() {
             .map((o) => o.id),
         );
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        doc.removeObjects(doc.selection);
+        // マーカーでアクセス中の拘束があれば、オブジェクトではなくその拘束だけを外す
+        const focused = useConstraintStore.getState().focused;
+        const focusedObj = focused ? doc.objects[focused.objectId] : undefined;
+        if (focused && focusedObj?.refs?.some((r) => r.role === focused.role)) {
+          removeConstraint(focused.objectId, focused.role);
+          useConstraintStore.getState().setFocused(null);
+        } else {
+          doc.removeObjects(doc.selection);
+        }
       } else if (e.key === 'Escape') {
         useToolStore.getState().setActiveTool('select');
         doc.clearSelection();
         setSegPicks([]);
         setTangentLineId(null);
+        setParallelObjId(null);
+        setCoincidentPick(null);
+        useConstraintStore.getState().setFocused(null);
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -293,10 +365,12 @@ export function CanvasStage() {
     };
   }, []);
 
-  // ツールを切り替えたら進行中の線分ピック・接線対象を破棄する
+  // ツールを切り替えたら進行中の線分ピック・接線対象・平行/一致対象を破棄する
   useEffect(() => {
     setSegPicks([]);
     setTangentLineId(null);
+    setParallelObjId(null);
+    setCoincidentPick(null);
   }, [activeTool]);
 
   const worldFromEvent = (e: React.PointerEvent): Point => {
@@ -325,6 +399,105 @@ export function CanvasStage() {
     const doc = useDocumentStore.getState();
     const { snapEnabled, gridSize } = useViewportStore.getState();
     const world = worldFromEvent(e);
+
+    // 拘束の解除ピルのクリック: そのロールの拘束のみを外す
+    const removeEl = (e.target as Element).closest('[data-constraint-remove]');
+    if (removeEl) {
+      const id = removeEl.getAttribute('data-constraint-remove');
+      const role = removeEl.getAttribute('data-constraint-role');
+      if (id && role) removeConstraint(id, role);
+      useConstraintStore.getState().setFocused(null);
+      return;
+    }
+    // 拘束マーカーのクリック: 拘束へアクセス(対象を選択し解除UIを出す)
+    const markerEl = (e.target as Element).closest('[data-constraint]');
+    if (markerEl) {
+      const id = markerEl.getAttribute('data-constraint');
+      const role = markerEl.getAttribute('data-constraint-role');
+      if (id && role && doc.objects[id]) {
+        doc.setSelection([id]);
+        useConstraintStore.getState().setFocused({ objectId: id, role });
+      }
+      return;
+    }
+    // マーカー以外をクリックしたらアクセス中の拘束フォーカスを解除する
+    if (useConstraintStore.getState().focused) useConstraintStore.getState().setFocused(null);
+
+    // 平行拘束モード: 「向きを変えるオブジェクト」→「基準の線分/エッジ」の順にクリック
+    if (activeTool === PARALLEL_TOOL) {
+      const hit = (e.target as Element).closest('[data-object-id]');
+      const hitObj = hit ? doc.objects[hit.getAttribute('data-object-id') ?? ''] : undefined;
+      if (!hitObj) return;
+      if (!parallelObjId) {
+        // 1回目: 拘束される側を選ぶ
+        setParallelObjId(hitObj.id);
+        doc.setSelection([hitObj.id]);
+        return;
+      }
+      if (hitObj.id === parallelObjId) return; // 自分自身は基準にできない
+      // 2回目: 基準となる線分/エッジを選ぶ(getSegments を持つオブジェクトのみ)
+      const pick = pickSegment(hitObj, world);
+      if (!pick) return;
+      const dep = doc.objects[parallelObjId];
+      if (!dep) {
+        setParallelObjId(null);
+        return;
+      }
+      const refAngle = angleOfVector({ x: pick.b.x - pick.a.x, y: pick.b.y - pick.a.y });
+      const others = dep.refs?.filter((r) => r.role !== 'parallel') ?? [];
+      doc.setObjectRefs(parallelObjId, [
+        ...others,
+        {
+          role: 'parallel',
+          targetId: pick.targetId,
+          kind: 'segment',
+          segIndex: pick.segIndex,
+          t: 0.5,
+          angleOffset: parallelOffset(dep.transform.rotation, refAngle),
+        },
+      ]);
+      doc.setSelection([parallelObjId]);
+      setParallelObjId(null);
+      useToolStore.getState().setActiveTool('select');
+      return;
+    }
+
+    // 一致/接続モード: 「動かす側+その接続点」→「基準のスナップ点」の順にクリック
+    if (activeTool === COINCIDENT_TOOL) {
+      const hit = (e.target as Element).closest('[data-object-id]');
+      const hitObj = hit ? doc.objects[hit.getAttribute('data-object-id') ?? ''] : undefined;
+      if (!hitObj) return;
+      const snap = nearestSnapPoint(hitObj, world);
+      if (!snap) return;
+      if (!coincidentPick) {
+        // 1回目: 動かす側のオブジェクトと接続点(最寄りのスナップ点=局所アンカー)
+        setCoincidentPick({ objId: hitObj.id, localAnchor: snap.local });
+        doc.setSelection([hitObj.id]);
+        return;
+      }
+      if (hitObj.id === coincidentPick.objId) return; // 自分自身は基準にできない
+      const dep = doc.objects[coincidentPick.objId];
+      if (!dep) {
+        setCoincidentPick(null);
+        return;
+      }
+      // 2回目: 基準側のスナップ点。既存の一致拘束は差し替え、他ロール(平行等)は残す
+      const others = dep.refs?.filter((r) => r.role !== 'coincident') ?? [];
+      doc.setObjectRefs(coincidentPick.objId, [
+        ...others,
+        {
+          role: 'coincident',
+          targetId: hitObj.id,
+          kind: 'point',
+          pointIndex: snap.index,
+          localAnchor: coincidentPick.localAnchor,
+        },
+      ]);
+      doc.setSelection([coincidentPick.objId]);
+      setCoincidentPick(null);
+      useToolStore.getState().setActiveTool('select');
+      return;
+    }
 
     // 接線モード: (任意)線分クリック→円/円弧クリックで、線の中点を接線方向に接続
     if (activeTool === TANGENT_TOOL) {
@@ -404,7 +577,22 @@ export function CanvasStage() {
       const plugin = obj ? pluginRegistry.get(obj.pluginId) : undefined;
       if (obj && plugin) {
         if (handleKind === 'rotate') {
-          dragRef.current = { mode: 'rotate', id: obj.id, before: obj.transform, moved: false };
+          // 回転軸: 既に置いた軸があればそれ、無ければ中心。触れた時点で赤マーカーを表示
+          const pivot =
+            rotatePivot?.id === obj.id
+              ? rotatePivot.world
+              : { x: obj.transform.x, y: obj.transform.y };
+          setRotatePivot({ id: obj.id, world: pivot });
+          dragRef.current = {
+            mode: 'rotate',
+            id: obj.id,
+            before: obj.transform,
+            pivot,
+            grab: world,
+            moved: false,
+          };
+        } else if (handleKind === 'pivot') {
+          dragRef.current = { mode: 'rotatePivot', id: obj.id, moved: false };
         } else if (handleKind === 'anchor') {
           const anchorRef = obj.refs?.find((r) => r.kind === 'circle');
           if (anchorRef) {
@@ -550,43 +738,31 @@ export function CanvasStage() {
         rawDx: world.x - drag.startWorld.x,
         rawDy: world.y - drag.startWorld.y,
         movingBefore: drag.before,
-        objects: doc.objects,
-        registry: pluginRegistry,
         snapEnabled,
         gridSize,
-        threshold: 6 / zoom,
       });
       const transforms: Record<string, Transform> = {};
       for (const [id, t] of Object.entries(drag.before)) {
         transforms[id] = { ...t, x: t.x + snapped.dx, y: t.y + snapped.dy };
       }
       doc.setTransformsTransient(transforms);
-      setGuides({ x: snapped.guideX, y: snapped.guideY });
       drag.moved = true;
       return;
     }
 
     if (drag.mode === 'scale') {
       let point = world;
-      let guideX: number | undefined;
-      let guideY: number | undefined;
       // 回転済みオブジェクトはハンドルの移動軸がワールド軸と一致しないため、
       // ワールド軸に沿ったスナップは回転0のときだけ適用する
       if (drag.before.rotation === 0) {
         const snapped = snapWorldPoint({
           point: world,
-          objects: doc.objects,
-          registry: pluginRegistry,
-          excludeIds: new Set([drag.id]),
           snapEnabled,
           gridSize,
-          threshold: 6 / zoom,
           axisX: drag.handle.sx !== 0,
           axisY: drag.handle.sy !== 0,
         });
         point = snapped.point;
-        guideX = snapped.guideX;
-        guideY = snapped.guideY;
       }
       const uniform = drag.uniform || e.shiftKey;
       if (drag.plugin.applyScale) {
@@ -604,7 +780,6 @@ export function CanvasStage() {
         const next = computeScaleDrag(drag.before, drag.bounds, drag.handle, point, uniform);
         doc.setTransformsTransient({ [drag.id]: next });
       }
-      setGuides({ x: guideX, y: guideY });
       drag.moved = true;
       return;
     }
@@ -639,8 +814,31 @@ export function CanvasStage() {
     }
 
     if (drag.mode === 'rotate') {
-      const next = computeRotationDrag(drag.before, world, snapEnabled ? 15 : undefined);
+      const next = computeRotationAboutPivot(
+        drag.before,
+        drag.pivot,
+        drag.grab,
+        world,
+        snapEnabled ? 15 : undefined,
+      );
       doc.setTransformsTransient({ [drag.id]: next });
+      drag.moved = true;
+      return;
+    }
+
+    if (drag.mode === 'rotatePivot') {
+      // 回転軸マーカーの移動。スナップON時はグリッド/他オブジェクトのスナップ点へ吸着
+      const snapped = snapEndpoint({
+        point: world,
+        objects: doc.objects,
+        registry: pluginRegistry,
+        excludeIds: new Set(),
+        snapEnabled,
+        gridSize,
+        threshold: 8 / zoom,
+      });
+      setRotatePivot({ id: drag.id, world: snapped.point });
+      setGuides({ marker: snapped.marker });
       drag.moved = true;
       return;
     }
@@ -821,29 +1019,40 @@ export function CanvasStage() {
           </g>
         )}
         <SelectionOverlay />
+        <ConstraintMarkers />
+        {rotatePivot && selection.length === 1 && selection[0] === rotatePivot.id && (
+          <g>
+            <circle
+              data-handle="pivot"
+              cx={rotatePivot.world.x}
+              cy={rotatePivot.world.y}
+              r={7 / zoom}
+              fill="rgba(224,69,123,0.12)"
+              stroke="#e0457b"
+              strokeWidth={1.5 / zoom}
+              style={{ cursor: 'move' }}
+            />
+            <line
+              x1={rotatePivot.world.x - 11 / zoom}
+              y1={rotatePivot.world.y}
+              x2={rotatePivot.world.x + 11 / zoom}
+              y2={rotatePivot.world.y}
+              stroke="#e0457b"
+              strokeWidth={1 / zoom}
+              pointerEvents="none"
+            />
+            <line
+              x1={rotatePivot.world.x}
+              y1={rotatePivot.world.y - 11 / zoom}
+              x2={rotatePivot.world.x}
+              y2={rotatePivot.world.y + 11 / zoom}
+              stroke="#e0457b"
+              strokeWidth={1 / zoom}
+              pointerEvents="none"
+            />
+          </g>
+        )}
         <g pointerEvents="none">
-          {guides.x !== undefined && (
-            <line
-              x1={guides.x}
-              y1={pan.y}
-              x2={guides.x}
-              y2={pan.y + viewHeight}
-              stroke="#e0457b"
-              strokeWidth={1 / zoom}
-              strokeDasharray={`${4 / zoom} ${3 / zoom}`}
-            />
-          )}
-          {guides.y !== undefined && (
-            <line
-              x1={pan.x}
-              y1={guides.y}
-              x2={pan.x + viewWidth}
-              y2={guides.y}
-              stroke="#e0457b"
-              strokeWidth={1 / zoom}
-              strokeDasharray={`${4 / zoom} ${3 / zoom}`}
-            />
-          )}
           {marquee && (
             <rect
               x={marquee.x}
@@ -877,6 +1086,28 @@ export function CanvasStage() {
               opacity={0.6}
             />
           ))}
+          {firstPickBounds && (
+            <rect
+              x={firstPickBounds.x}
+              y={firstPickBounds.y}
+              width={firstPickBounds.width}
+              height={firstPickBounds.height}
+              fill="rgba(224,69,123,0.08)"
+              stroke="#e0457b"
+              strokeWidth={1.5 / zoom}
+              strokeDasharray={`${4 / zoom} ${3 / zoom}`}
+            />
+          )}
+          {coincidentPickPoint && (
+            <circle
+              cx={coincidentPickPoint.x}
+              cy={coincidentPickPoint.y}
+              r={5 / zoom}
+              fill="none"
+              stroke="#e0457b"
+              strokeWidth={2 / zoom}
+            />
+          )}
         </g>
       </svg>
     </div>

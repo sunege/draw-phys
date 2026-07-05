@@ -14,9 +14,6 @@ import type { ObjectRef, Point, Transform } from '../core/types';
 export interface MoveSnapResult {
   dx: number;
   dy: number;
-  /** オブジェクトスナップが成立したときのガイドライン位置(ワールド座標) */
-  guideX?: number;
-  guideY?: number;
 }
 
 /** オブジェクトのスナップ点をワールド座標で列挙する */
@@ -117,128 +114,47 @@ export function snapEndpoint(params: {
 
 export interface PointSnapResult {
   point: Point;
-  /** オブジェクトスナップが成立した軸のガイドライン位置(ワールド座標) */
-  guideX?: number;
-  guideY?: number;
 }
 
 /**
- * 単一のワールド座標点(スケールハンドル位置など)を、
- * 他オブジェクトのスナップ点(優先)またはグリッドへ吸着する。
+ * 単一のワールド座標点(スケールハンドル位置など)をグリッドへ吸着する。
  * axisX / axisY で吸着対象の軸を絞る(辺ハンドルは片軸のみ)。
  */
 export function snapWorldPoint(params: {
   point: Point;
-  objects: SceneObjects;
-  registry: PluginRegistry;
-  /** スナップ対象から除外するオブジェクト(操作中のもの) */
-  excludeIds: Set<string>;
   snapEnabled: boolean;
   gridSize: number;
-  threshold: number;
   axisX: boolean;
   axisY: boolean;
 }): PointSnapResult {
-  const { point, objects, registry, excludeIds, snapEnabled, gridSize, threshold, axisX, axisY } =
-    params;
+  const { point, snapEnabled, gridSize, axisX, axisY } = params;
   if (!snapEnabled) return { point: { ...point } };
 
-  const staticPts: Point[] = [];
-  for (const [id, obj] of Object.entries(objects)) {
-    if (excludeIds.has(id) || !obj.visible) continue;
-    staticPts.push(...worldSnapPoints(objects, registry, id, obj.transform));
-  }
-
   const result: PointSnapResult = { point: { ...point } };
-
-  const snapAxis = (axis: 'x' | 'y') => {
-    let best: { value: number; dist: number } | null = null;
-    for (const s of staticPts) {
-      const dist = Math.abs(s[axis] - point[axis]);
-      if (dist <= threshold && (!best || dist < best.dist)) best = { value: s[axis], dist };
-    }
-    if (best) {
-      result.point[axis] = best.value;
-      if (axis === 'x') result.guideX = best.value;
-      else result.guideY = best.value;
-    } else {
-      result.point[axis] = snapValue(point[axis], gridSize);
-    }
-  };
-
-  if (axisX) snapAxis('x');
-  if (axisY) snapAxis('y');
+  if (axisX) result.point.x = snapValue(point.x, gridSize);
+  if (axisY) result.point.y = snapValue(point.y, gridSize);
   return result;
 }
 
 /**
- * 移動ドラッグのスナップ補正。
- * 軸ごとに、他オブジェクトのスナップ点への吸着を優先し、
- * 吸着しなければグリッドへスナップする。移動量は全選択オブジェクトへ一様に適用する。
+ * 移動ドラッグのスナップ補正。先頭オブジェクトの位置を基準にグリッドへスナップし、
+ * 相対配置を保ったまま移動量を全選択オブジェクトへ一様に適用する。
  */
 export function snapMovement(params: {
   rawDx: number;
   rawDy: number;
   movingBefore: Record<string, Transform>;
-  objects: SceneObjects;
-  registry: PluginRegistry;
   snapEnabled: boolean;
   gridSize: number;
-  /** 吸着距離(ワールド単位) */
-  threshold: number;
 }): MoveSnapResult {
-  const { rawDx, rawDy, movingBefore, objects, registry, snapEnabled, gridSize, threshold } =
-    params;
+  const { rawDx, rawDy, movingBefore, snapEnabled, gridSize } = params;
   if (!snapEnabled) return { dx: rawDx, dy: rawDy };
 
-  const movingIds = new Set(Object.keys(movingBefore));
-
-  const movingPts: Point[] = [];
-  for (const [id, before] of Object.entries(movingBefore)) {
-    movingPts.push(
-      ...worldSnapPoints(objects, registry, id, {
-        ...before,
-        x: before.x + rawDx,
-        y: before.y + rawDy,
-      }),
-    );
-  }
-
-  const staticPts: Point[] = [];
-  for (const [id, obj] of Object.entries(objects)) {
-    if (movingIds.has(id) || !obj.visible) continue;
-    staticPts.push(...worldSnapPoints(objects, registry, id, obj.transform));
-  }
-
-  let bestX: { diff: number; guide: number } | null = null;
-  let bestY: { diff: number; guide: number } | null = null;
-  for (const s of staticPts) {
-    for (const m of movingPts) {
-      const dxDiff = s.x - m.x;
-      if (Math.abs(dxDiff) <= threshold && (!bestX || Math.abs(dxDiff) < Math.abs(bestX.diff))) {
-        bestX = { diff: dxDiff, guide: s.x };
-      }
-      const dyDiff = s.y - m.y;
-      if (Math.abs(dyDiff) <= threshold && (!bestY || Math.abs(dyDiff) < Math.abs(bestY.diff))) {
-        bestY = { diff: dyDiff, guide: s.y };
-      }
-    }
-  }
-
   const result: MoveSnapResult = { dx: rawDx, dy: rawDy };
-
   // グリッドスナップは先頭オブジェクトの位置を基準に、相対配置を保ったまま補正する
   const primary = Object.values(movingBefore)[0];
-  if (bestX) {
-    result.dx = rawDx + bestX.diff;
-    result.guideX = bestX.guide;
-  } else if (primary) {
+  if (primary) {
     result.dx = snapValue(primary.x + rawDx, gridSize) - primary.x;
-  }
-  if (bestY) {
-    result.dy = rawDy + bestY.diff;
-    result.guideY = bestY.guide;
-  } else if (primary) {
     result.dy = snapValue(primary.y + rawDy, gridSize) - primary.y;
   }
   return result;

@@ -1,3 +1,4 @@
+import { fromDisplayAngle, toDisplayAngle } from '../canvas/transformMath';
 import type { PropertyField } from '../core/plugin';
 import { pluginRegistry } from '../core/registry';
 import { useDocumentStore, type AlignMode, type ReorderMode } from '../state/documentStore';
@@ -246,9 +247,36 @@ export function PropertyPanel() {
   const plugin = obj ? pluginRegistry.get(obj.pluginId) : undefined;
   if (!obj || !plugin) return <aside className={styles.panel} />;
 
+  // 回転角の編集(平行拘束中は回転が固定されるため出さない)
+  const parallelBound = obj.refs?.some((r) => r.role === 'parallel') ?? false;
+  const rotatable = (plugin.capabilities?.rotatable ?? true) && !parallelBound;
+  // 表示は「水平右=0°, 反時計回りが正」。中心まわりに向きだけ変える
+  const displayAngle = Math.round(toDisplayAngle(obj.transform.rotation) * 10) / 10;
+  const setRotation = (deg: number) => {
+    const store = useDocumentStore.getState();
+    const before = store.objects[obj.id]?.transform;
+    if (!before) return;
+    store.setTransformsTransient({ [obj.id]: { ...before, rotation: fromDisplayAngle(deg) } });
+    store.commitTransforms({ [obj.id]: before });
+  };
+
   return (
     <aside className={styles.panel}>
       <h3 className={styles.heading}>{plugin.name}</h3>
+      {rotatable && (
+        <label className={styles.field}>
+          <span className={styles.label}>回転角 (°)</span>
+          <input
+            type="number"
+            step={1}
+            value={displayAngle}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (!Number.isNaN(n)) setRotation(n);
+            }}
+          />
+        </label>
+      )}
       {plugin.propertySchema.map((field) => (
         <label key={field.key} className={styles.field}>
           <span className={styles.label}>{field.label}</span>

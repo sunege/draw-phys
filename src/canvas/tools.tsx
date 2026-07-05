@@ -13,6 +13,8 @@ export interface OperationTool {
 }
 
 export const TANGENT_TOOL = 'tangent';
+export const PARALLEL_TOOL = 'parallel';
+export const COINCIDENT_TOOL = 'coincident';
 
 export const OPERATION_TOOLS: OperationTool[] = [
   {
@@ -23,6 +25,37 @@ export const OPERATION_TOOLS: OperationTool[] = [
       <svg width="20" height="20" viewBox="0 0 24 24">
         <circle cx="10" cy="14" r="6" fill="none" stroke="currentColor" strokeWidth="2" />
         <line x1="2" y1="6" x2="20" y2="6" stroke="currentColor" strokeWidth="2" />
+      </svg>
+    ),
+  },
+  {
+    id: PARALLEL_TOOL,
+    name: '平行',
+    category: '拘束',
+    Icon: () => (
+      <svg width="20" height="20" viewBox="0 0 24 24">
+        <line x1="4" y1="8" x2="20" y2="4" stroke="currentColor" strokeWidth="2" />
+        <line x1="4" y1="18" x2="20" y2="14" stroke="currentColor" strokeWidth="2" />
+        <path
+          d="M11 11 L14 12.5 L11 14"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  {
+    id: COINCIDENT_TOOL,
+    name: '一致',
+    category: '拘束',
+    Icon: () => (
+      <svg width="20" height="20" viewBox="0 0 24 24">
+        <circle cx="9" cy="12" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="15" cy="12" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="12" cy="12" r="2.2" fill="currentColor" />
       </svg>
     ),
   },

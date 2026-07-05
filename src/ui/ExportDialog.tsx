@@ -49,8 +49,9 @@ export function ExportDialog({ fileName, onClose }: { fileName: string; onClose:
       const svg = await exporter.buildSvgString(targets, region, pluginRegistry, background);
 
       if (action === 'clipboard') {
-        await exporter.copyToClipboard(svg, region);
-        setMessage('クリップボードへコピーしました');
+        // クリップボードは常にPNGで渡す(Word/PowerPointがSVGを誤描画するため)
+        await exporter.copyToClipboard(svg, region, transparent);
+        setMessage('クリップボードへコピーしました（PNG）');
         return;
       }
       if (format === 'svg') {

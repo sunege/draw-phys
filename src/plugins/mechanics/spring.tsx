@@ -97,7 +97,7 @@ export const springPlugin: PhysicsObjectPlugin<SpringProps> = {
     const { length, transform } = segmentFromEndpoints(a, b);
     return { props: { ...props, length }, transform };
   },
-  capabilities: { rotatable: false, scalable: 'none' },
+  capabilities: { rotatable: true, scalable: 'none' },
   placement: 'drag-line',
   createFromDrag(start, end) {
     const { length, transform } = lineFromDrag(start, end, 120);

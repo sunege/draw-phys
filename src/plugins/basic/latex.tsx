@@ -1,6 +1,7 @@
 import katex from 'katex';
 import type { PhysicsObjectPlugin } from '../../core/plugin';
 import type { Rect } from '../../core/types';
+import { areKatexFontsReady, registerKatexMeasureCache } from './katexFonts';
 import 'katex/dist/katex.min.css';
 
 interface LatexProps {
@@ -60,6 +61,7 @@ function renderHtml(formula: string): string {
  * 非表示要素で実測してキャッシュする。DOMが無い環境では概算にフォールバック。
  */
 const measureCache = new Map<string, { width: number; height: number }>();
+registerKatexMeasureCache(() => measureCache.clear());
 
 function measureFormula(formula: string, fontSize: number): { width: number; height: number } {
   const key = `${fontSize}|${formula}`;
@@ -80,7 +82,8 @@ function measureFormula(formula: string, fontSize: number): { width: number; hei
       size = { width: rect.width, height: rect.height };
     }
   }
-  measureCache.set(key, size);
+  // フォント確定後の安定した実測値だけをキャッシュする(未確定なら毎回測り直す)
+  if (areKatexFontsReady()) measureCache.set(key, size);
   return size;
 }
 

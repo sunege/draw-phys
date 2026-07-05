@@ -37,15 +37,33 @@ export function identityTransform(x = 0, y = 0): Transform {
  * refはプレーンなデータなので保存・Undo/Redoにそのまま乗る。
  */
 export interface ObjectRef {
-  /** 依存側プラグインが解釈するスロット名(例 'a' | 'b' | 'p0' | 'p1' | 'anchor') */
+  /**
+   * 依存側プラグインが解釈するスロット名(例 'a' | 'b' | 'p0' | 'p1' | 'anchor')。
+   * 本体ソルバが直接処理する予約ロール(プラグイン種別を問わない):
+   * - 'parallel'   自オブジェクトの回転を基準線分と平行に保つ
+   * - 'coincident' 自オブジェクトの局所アンカーを基準点に一致させ追従させる(一致/接続)
+   */
   role: string;
   /** 参照先オブジェクトID */
   targetId: string;
-  kind: 'segment' | 'circle';
+  /** segment: 線分 / circle: 円周 / point: 対象のスナップ点 */
+  kind: 'segment' | 'circle' | 'point';
   /** segment: 線分パラメタ[0,1] / circle: 角度(度, 対象ローカル基準) */
   t?: number;
   /** 複数線分を持つ対象での辺インデックス */
   segIndex?: number;
+  /** point: 対象のスナップ点インデックス */
+  pointIndex?: number;
   /** 依存側の解釈用オプション(例 'radius' | 'diameter') */
   mode?: string;
+  /**
+   * 平行拘束(role:'parallel')で、基準の向きに加える角度オフセット(度)。
+   * 拘束時に「最小回転で平行」になるよう 0 か 180 を焼き込む。
+   */
+  angleOffset?: number;
+  /**
+   * 一致/接続拘束(role:'coincident')で、基準点に一致させる自オブジェクトの
+   * 局所アンカー点(オブジェクト中心=原点)。拘束時にスナップ点を焼き込む。
+   */
+  localAnchor?: Point;
 }

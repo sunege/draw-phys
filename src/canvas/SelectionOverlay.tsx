@@ -2,6 +2,7 @@ import type { SceneObject } from '../core/document';
 import { unionRects, worldBounds } from '../core/geometry';
 import { pluginRegistry } from '../core/registry';
 import type { Rect } from '../core/types';
+import { useKatexFontsTick } from '../plugins/basic/katexFonts';
 import { useDocumentStore } from '../state/documentStore';
 import { useViewportStore } from '../state/viewportStore';
 import type { HandleDir } from './transformMath';
@@ -48,7 +49,9 @@ function SingleSelection({ obj, zoom }: { obj: SceneObject; zoom: number }) {
   const box = scaledBounds(plugin.getBounds(obj.props), t.scaleX, t.scaleY);
   const handleSize = 8 / zoom;
   const scalable = plugin.capabilities?.scalable ?? 'both';
-  const rotatable = plugin.capabilities?.rotatable ?? true;
+  // 平行拘束中は回転が基準へ固定されるため、回転ハンドルは出さない
+  const parallelBound = obj.refs?.some((r) => r.role === 'parallel') ?? false;
+  const rotatable = (plugin.capabilities?.rotatable ?? true) && !parallelBound;
   const rotHandleOffset = 20 / zoom;
   const centerX = box.x + box.width / 2;
   // 円拘束された線の接点(ローカル位置)。接続点ハンドルと端点重なり判定に使う
@@ -151,6 +154,8 @@ export function SelectionOverlay() {
   const objects = useDocumentStore((s) => s.objects);
   const selection = useDocumentStore((s) => s.selection);
   const zoom = useViewportStore((s) => s.zoom);
+  // 数式のバウンディングはフォント実寸に依存するため、ロード完了後に選択枠を測り直す
+  useKatexFontsTick();
 
   if (selection.length === 0) return null;
 

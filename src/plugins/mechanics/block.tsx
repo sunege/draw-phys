@@ -2,7 +2,13 @@ import { unionRects } from '../../core/geometry';
 import type { PhysicsObjectPlugin } from '../../core/plugin';
 import { ObjectLabel } from '../basic/LabelView';
 import { PatternDefs } from '../basic/PatternDefs';
-import { fillPatternField, resolveFill, type FillPattern } from '../basic/fillPattern';
+import {
+  fillOpacityField,
+  fillPatternField,
+  resolveFill,
+  resolveFillOpacity,
+  type FillPattern,
+} from '../basic/fillPattern';
 import {
   labelBgField,
   labelDecoDefaults,
@@ -25,6 +31,7 @@ interface BlockProps extends LabelDecoProps {
   labelLatex: string;
   fontSize: number;
   fillPattern: FillPattern;
+  fillOpacity: number;
 }
 
 const ORIGIN = { x: 0, y: 0 };
@@ -57,6 +64,7 @@ export const blockPlugin: PhysicsObjectPlugin<BlockProps> = {
     labelLatex: 'm',
     fontSize: 20,
     fillPattern: 'none',
+    fillOpacity: 1,
     ...labelDecoDefaults,
   },
   defaultSize: { width: 80, height: 60 },
@@ -64,6 +72,7 @@ export const blockPlugin: PhysicsObjectPlugin<BlockProps> = {
     { key: 'width', label: '幅', type: 'number', min: 1, step: 10 },
     { key: 'height', label: '高さ', type: 'number', min: 1, step: 10 },
     { key: 'fill', label: '塗り色', type: 'color' },
+    fillOpacityField,
     { key: 'stroke', label: '線色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0, step: 0.5 },
     fillPatternField,
@@ -91,6 +100,7 @@ export const blockPlugin: PhysicsObjectPlugin<BlockProps> = {
         width={props.width}
         height={props.height}
         fill={resolveFill(props)}
+        fillOpacity={resolveFillOpacity(props)}
         stroke={props.stroke}
         strokeWidth={props.strokeWidth}
       />

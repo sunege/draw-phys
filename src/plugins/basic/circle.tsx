@@ -2,7 +2,13 @@ import type { PhysicsObjectPlugin } from '../../core/plugin';
 import { CenterMark } from './CenterMark';
 import { PatternDefs } from './PatternDefs';
 import { centerDefaults, centerFields } from './centerFields';
-import { fillPatternField, resolveFill, type FillPattern } from './fillPattern';
+import {
+  fillOpacityField,
+  fillPatternField,
+  resolveFill,
+  resolveFillOpacity,
+  type FillPattern,
+} from './fillPattern';
 
 interface CircleProps {
   radius: number;
@@ -10,6 +16,7 @@ interface CircleProps {
   stroke: string;
   strokeWidth: number;
   fillPattern: FillPattern;
+  fillOpacity: number;
   showCenter: boolean;
   centerStyle: 'cross' | 'dot';
   centerSize: number;
@@ -31,12 +38,14 @@ export const circlePlugin: PhysicsObjectPlugin<CircleProps> = {
     stroke: '#333333',
     strokeWidth: 2,
     fillPattern: 'none',
+    fillOpacity: 1,
     ...centerDefaults,
   },
   defaultSize: { width: 80, height: 80 },
   propertySchema: [
     { key: 'radius', label: '半径', type: 'number', min: 1, step: 5 },
     { key: 'fill', label: '塗り色', type: 'color' },
+    fillOpacityField,
     { key: 'stroke', label: '線色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0, step: 0.5 },
     fillPatternField,
@@ -48,6 +57,7 @@ export const circlePlugin: PhysicsObjectPlugin<CircleProps> = {
       <circle
         r={props.radius}
         fill={resolveFill(props)}
+        fillOpacity={resolveFillOpacity(props)}
         stroke={props.stroke}
         strokeWidth={props.strokeWidth}
       />

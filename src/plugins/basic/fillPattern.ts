@@ -18,6 +18,8 @@ export interface PatternFillProps {
   fill: string;
   stroke: string;
   fillPattern: FillPattern;
+  /** 塗りの不透明度(0=透明〜1=不透明)。未設定は不透明扱い */
+  fillOpacity?: number;
 }
 
 /** プロパティパネル用の塗りパターン選択フィールド */
@@ -34,6 +36,16 @@ export const fillPatternField: PropertyField = {
     { value: 'vertical', label: '縦線' },
     { value: 'dots', label: 'ドット' },
   ],
+};
+
+/** プロパティパネル用の塗り不透明度フィールド(0=透明〜1=不透明) */
+export const fillOpacityField: PropertyField = {
+  key: 'fillOpacity',
+  label: '塗りの不透明度',
+  type: 'number',
+  min: 0,
+  max: 1,
+  step: 0.1,
 };
 
 /** タイル間隔(ローカル座標。scaleは常に1なので実寸に一致する) */
@@ -54,4 +66,9 @@ export function resolveFill(props: PatternFillProps): string {
   const pattern = props.fillPattern ?? 'none';
   if (pattern === 'none') return props.fill;
   return `url(#${patternId(pattern, props.fill, props.stroke)})`;
+}
+
+/** 塗りの不透明度(未設定は不透明=1)。SVGの fill-opacity にそのまま渡す */
+export function resolveFillOpacity(props: PatternFillProps): number {
+  return props.fillOpacity ?? 1;
 }

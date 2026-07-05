@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { makeTestPlugin } from '../../core/__tests__/testPlugin';
 import { identityTransform, type Rect } from '../../core/types';
-import { computeRotationDrag, computeScaleDrag, computeScaleToProps } from '../transformMath';
+import {
+  computeRotationAboutPivot,
+  computeRotationDrag,
+  computeScaleDrag,
+  computeScaleToProps,
+  fromDisplayAngle,
+  normalizeAngle,
+  toDisplayAngle,
+} from '../transformMath';
 
 // 中心原点の 100x60 バウンディングボックス
 const bounds: Rect = { x: -50, y: -30, width: 100, height: 60 };
@@ -113,5 +121,52 @@ describe('computeRotationDrag', () => {
     expect(next.y).toBe(20);
     expect(next.scaleX).toBe(2);
     expect(next.scaleY).toBe(3);
+  });
+});
+
+describe('computeRotationAboutPivot', () => {
+  it('ピボット=中心なら向きだけ変わり中心は動かない', () => {
+    const before = identityTransform(0, 0);
+    // つかんだ点=右(0°)、ポインタ=下(90°) → 90度回転
+    const next = computeRotationAboutPivot(before, { x: 0, y: 0 }, { x: 50, y: 0 }, { x: 0, y: 50 });
+    expect(next.rotation).toBeCloseTo(90);
+    expect(next.x).toBeCloseTo(0);
+    expect(next.y).toBeCloseTo(0);
+  });
+
+  it('ピボットが中心から離れていると中心もピボットまわりに移動する', () => {
+    const before = identityTransform(100, 0);
+    // 原点まわりに90度回転 → 中心(100,0)は(0,100)へ(画面Y下向きで時計回りが正)
+    const next = computeRotationAboutPivot(before, { x: 0, y: 0 }, { x: 50, y: 0 }, { x: 0, y: 50 });
+    expect(next.rotation).toBeCloseTo(90);
+    expect(next.x).toBeCloseTo(0);
+    expect(next.y).toBeCloseTo(100);
+  });
+
+  it('スナップ指定で結果の回転角が刻みに丸まる', () => {
+    const before = identityTransform(0, 0);
+    const next = computeRotationAboutPivot(before, { x: 0, y: 0 }, { x: 50, y: 0 }, { x: 40, y: 7 }, 15);
+    expect(next.rotation % 15).toBe(0);
+  });
+});
+
+describe('角度の正規化と表示変換', () => {
+  it('normalizeAngle は範囲外を畳み込む', () => {
+    expect(normalizeAngle(370)).toBeCloseTo(10);
+    expect(normalizeAngle(-370)).toBeCloseTo(-10);
+    expect(normalizeAngle(0)).toBe(0);
+  });
+
+  it('表示角は反時計回り正(内部の符号反転)', () => {
+    // 内部+90(画面時計回り) → 表示 -90(反時計回り正)
+    expect(toDisplayAngle(90)).toBeCloseTo(-90);
+    expect(toDisplayAngle(-90)).toBeCloseTo(90);
+    expect(toDisplayAngle(0)).toBe(0);
+  });
+
+  it('表示角↔内部回転は往復で一致する', () => {
+    for (const deg of [0, 30, 45, -60, 120, -170]) {
+      expect(fromDisplayAngle(toDisplayAngle(deg))).toBeCloseTo(deg);
+    }
   });
 });

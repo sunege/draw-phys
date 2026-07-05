@@ -1,4 +1,5 @@
 import katex from 'katex';
+import { areKatexFontsReady, registerKatexMeasureCache } from '../basic/katexFonts';
 import 'katex/dist/katex.min.css';
 
 /** 円記号(¥/￥)をバックスラッシュとして扱う(日本語キーボード対策) */
@@ -16,6 +17,7 @@ export function renderMathHtml(latex: string): string {
 }
 
 const measureCache = new Map<string, { width: number; height: number }>();
+registerKatexMeasureCache(() => measureCache.clear());
 
 /** 数式ラベルの実寸を非表示要素で実測してキャッシュ(DOMが無ければ概算) */
 export function measureMath(latex: string, fontSize: number): { width: number; height: number } {
@@ -35,6 +37,7 @@ export function measureMath(latex: string, fontSize: number): { width: number; h
     el.remove();
     if (rect.width > 0 && rect.height > 0) size = { width: rect.width, height: rect.height };
   }
-  measureCache.set(key, size);
+  // フォント確定後の安定した実測値だけをキャッシュする(未確定なら毎回測り直す)
+  if (areKatexFontsReady()) measureCache.set(key, size);
   return size;
 }
