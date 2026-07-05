@@ -20,7 +20,8 @@ function viewportWorldRect(): Rect | null {
 
 export function ExportDialog({ fileName, onClose }: { fileName: string; onClose: () => void }) {
   const selectionCount = useDocumentStore((s) => s.selection.length);
-  const [target, setTarget] = useState<Target>('all');
+  // 選択があれば既定を「選択オブジェクト」にする
+  const [target, setTarget] = useState<Target>(() => (selectionCount > 0 ? 'selection' : 'all'));
   const [format, setFormat] = useState<Format>('png');
   const [scale, setScale] = useState(2);
   const [transparent, setTransparent] = useState(false);

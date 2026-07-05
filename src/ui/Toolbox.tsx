@@ -1,5 +1,6 @@
 import { OPERATION_TOOLS } from '../canvas/tools';
 import { pluginRegistry } from '../core/registry';
+import { useDocumentStore } from '../state/documentStore';
 import { useToolStore } from '../state/toolStore';
 import styles from './Toolbox.module.css';
 
@@ -16,6 +17,7 @@ function SelectIcon() {
 export function Toolbox() {
   const activeTool = useToolStore((s) => s.activeTool);
   const setActiveTool = useToolStore((s) => s.setActiveTool);
+  const clearSelection = useDocumentStore((s) => s.clearSelection);
   const categories = pluginRegistry.byCategory();
 
   return (
@@ -53,7 +55,11 @@ export function Toolbox() {
             key={tool.id}
             type="button"
             className={activeTool === tool.id ? styles.toolActive : styles.tool}
-            onClick={() => setActiveTool(tool.id)}
+            onClick={() => {
+              // 拘束は選択中オブジェクトを1つ目に選べるよう、選択を解除する
+              clearSelection();
+              setActiveTool(tool.id);
+            }}
           >
             <tool.Icon />
             <span>{tool.name}</span>
