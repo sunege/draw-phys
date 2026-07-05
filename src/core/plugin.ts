@@ -52,6 +52,27 @@ export interface SegmentPick {
   b: Point;
 }
 
+/** 配置中にクリックしたオブジェクトのエッジ(線分)または円周の情報 */
+export type EdgePick =
+  | { kind: 'segment'; targetId: string; segIndex: number }
+  | { kind: 'circle'; targetId: string; /** クリック点のローカル角度(度) */ t: number };
+
+/**
+ * トリム(部分削除)後に「残す1区間」。本体(trim.ts)が交点計算で算出しプラグインへ渡す。
+ * - segment: クリック曲線のパラメタ範囲 [from,to]⊂[0,1]
+ * - arc: ローカル角度(度)。from→to(増加方向)を残す。円は補角、円弧は掃引内の残片。
+ */
+export type TrimKeep =
+  | { kind: 'segment'; from: number; to: number }
+  | { kind: 'arc'; fromDeg: number; toDeg: number };
+
+/** トリム後に残る1部品(1シーンオブジェクトになる)。pluginId を変えられる(円→円弧) */
+export interface TrimPiece {
+  pluginId: string;
+  props: Record<string, unknown>;
+  transform: Transform;
+}
+
 export interface PluginCapabilities {
   rotatable?: boolean;
   /** 'x' はローカルX軸方向(線の長さ方向)のみ拡大縮小可 */
@@ -179,6 +200,22 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
    * placement が 'pick-segments' の場合は必須。
    */
   createFromPicks?(picks: SegmentPick[]): { props: P; transform: Transform; refs: ObjectRef[] };
+  /**
+   * drag-line 配置中に背景でなくオブジェクトをクリックしたとき、そのエッジ/円へ
+   * バインドする参照を返す(transform/lengthは applyRefs が算出)。
+   * null を返すと通常のドラッグ配置にフォールバックする。長さマーク用。
+   */
+  createFromEdge?(pick: EdgePick): ObjectRef[] | null;
+  /**
+   * トリム(CAD的な部分削除)。本体が算出した「残す区間 keeps」から、
+   * トリム後に残る部品(TrimPiece)を組み立てて返す。
+   * - keeps.length === 0 … 全消し(呼び出し側が対象を削除)
+   * - 1件 … 端の区間を削った/角度を詰めた(自身を更新)
+   * - 2件 … 分割(自身+新規1個)
+   * getSegments を持つ線分系は kind:'segment'、getCircle を持つ円・円弧は kind:'arc' で呼ばれる。
+   * これを実装したプラグインだけがトリム対象になる。
+   */
+  trim?(props: P, transform: Transform, keeps: TrimKeep[]): TrimPiece[] | null;
   /**
    * SVG書き出し時に埋め込むCSS(フォント等はdata URIで自己完結させること)。
    * このプラグインのオブジェクトが書き出し対象に含まれる場合のみ呼ばれる。

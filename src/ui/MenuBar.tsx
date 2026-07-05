@@ -1,11 +1,14 @@
 import { useState } from 'react';
 import { useDocumentStore } from '../state/documentStore';
+import { useToastStore } from '../state/toastStore';
 import { useViewportStore } from '../state/viewportStore';
 import { ExportDialog } from './ExportDialog';
 import styles from './MenuBar.module.css';
 
 export function MenuBar({ fileName }: { fileName?: string }) {
   const [exportOpen, setExportOpen] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const showToast = useToastStore((s) => s.showToast);
   const canUndo = useDocumentStore((s) => s.undoStack.length > 0);
   const canRedo = useDocumentStore((s) => s.redoStack.length > 0);
   const undo = useDocumentStore((s) => s.undo);
@@ -18,6 +21,21 @@ export function MenuBar({ fileName }: { fileName?: string }) {
   const setSnapEnabled = useViewportStore((s) => s.setSnapEnabled);
   const setSnapDivision = useViewportStore((s) => s.setSnapDivision);
   const resetView = useViewportStore((s) => s.resetView);
+
+  // 書き出しの既定設定(選択優先・PNG)でクリップボードへコピーし、完了をトースト表示
+  const onCopy = async () => {
+    if (copying) return;
+    setCopying(true);
+    try {
+      const { copyDefaultToClipboard } = await import('../export/copyImage');
+      await copyDefaultToClipboard();
+      showToast('クリップボードへコピーしました（PNG）');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'コピーに失敗しました', 'error');
+    } finally {
+      setCopying(false);
+    }
+  };
 
   return (
     <header className={styles.bar}>
@@ -43,6 +61,15 @@ export function MenuBar({ fileName }: { fileName?: string }) {
           ↪ やり直す
         </button>
       </div>
+      <button
+        type="button"
+        className={styles.iconButton}
+        onClick={() => void onCopy()}
+        disabled={copying}
+        title="既定設定(選択優先・PNG)でクリップボードへコピー"
+      >
+        📋 コピー
+      </button>
       <button
         type="button"
         className={styles.iconButton}

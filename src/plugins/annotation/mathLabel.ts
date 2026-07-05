@@ -9,11 +9,15 @@ function normalize(latex: string): string {
 
 /** KaTeXでHTML文字列を生成する(注釈ラベル用) */
 export function renderMathHtml(latex: string): string {
-  return katex.renderToString(normalize(latex), {
+  const html = katex.renderToString(normalize(latex), {
     throwOnError: false,
     displayMode: true,
     output: 'html',
   });
+  // displayMode の .katex-display は上下に margin:1em(=2em分)を持ち、
+  // 文字の高さより縦幅が大きくなる。マージンを消して数式の高さにフィットさせる
+  // (実測・描画の両方に効く)。
+  return html.replace('class="katex-display"', 'class="katex-display" style="margin:0"');
 }
 
 const measureCache = new Map<string, { width: number; height: number }>();

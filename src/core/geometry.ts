@@ -110,6 +110,17 @@ export function lineLineIntersection(
   return { x: a1.x + d1x * t, y: a1.y + d1y * t };
 }
 
+/** 角度を[0,360)へ正規化する */
+export function normalizeAngle360(deg: number): number {
+  return ((deg % 360) + 360) % 360;
+}
+
+/** 角度を(-180,180]へ正規化する */
+export function normalizeAngle180(deg: number): number {
+  const x = normalizeAngle360(deg);
+  return x > 180 ? x - 360 : x;
+}
+
 export function snapValue(value: number, gridSize: number): number {
   return Math.round(value / gridSize) * gridSize;
 }

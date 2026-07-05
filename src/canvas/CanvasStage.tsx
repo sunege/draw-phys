@@ -16,7 +16,7 @@ import {
   transformToString,
   worldBounds,
 } from '../core/geometry';
-import type { AnyPlugin, SegmentPick } from '../core/plugin';
+import type { AnyPlugin, EdgePick, SegmentPick } from '../core/plugin';
 import { pluginRegistry } from '../core/registry';
 import type { ObjectRef, Point, Rect, Transform } from '../core/types';
 import { copySelection, duplicateSelection, pasteClipboard } from '../state/clipboard';
@@ -38,7 +38,8 @@ import {
   type AnchorBind,
   type EndpointAttach,
 } from './snapping';
-import { COINCIDENT_TOOL, PARALLEL_TOOL, PERPENDICULAR_TOOL, TANGENT_TOOL } from './tools';
+import { COINCIDENT_TOOL, PARALLEL_TOOL, PERPENDICULAR_TOOL, TANGENT_TOOL, TRIM_TOOL } from './tools';
+import { computeTrimKeeps } from './trim';
 import {
   computeRotationAboutPivot,
   computeScaleDrag,
@@ -221,6 +222,15 @@ function makeCoincidentRef(
   }
   // どこにも吸着しなければ自由座標へ(対象なし)
   return { role: 'coincident', kind: 'point', targetId: '', localAnchor: prev.localAnchor, worldAnchor: snapped.point };
+}
+
+/** クリックしたオブジェクトの最寄りエッジ(線分)または円周を EdgePick で返す */
+function pickEdge(obj: SceneObject, world: Point): EdgePick | null {
+  const seg = pickSegment(obj, world);
+  if (seg) return { kind: 'segment', targetId: seg.targetId, segIndex: seg.segIndex };
+  const t = circleAngleAt(obj, world);
+  if (t != null) return { kind: 'circle', targetId: obj.id, t };
+  return null;
 }
 
 /** 端点吸着の相手情報から追従バインド用の refs を作る */
@@ -438,6 +448,8 @@ export function CanvasStage() {
           ? { title: '接線', message: '接続する円・円弧をクリック' }
           : { title: '接線', message: '円・円弧をクリック（先に線・矢印・ベクトルを選ぶと接続）' },
       );
+    } else if (activeTool === TRIM_TOOL) {
+      setHint({ title: 'トリム', message: '切り取る線・円弧・円のエッジをクリック（Escで終了）' });
     } else {
       setHint(null);
     }
@@ -613,6 +625,23 @@ export function CanvasStage() {
       return;
     }
 
+    // トリムモード: クリックした線・円弧・円のエッジを、交点から交点まで切り取る
+    if (activeTool === TRIM_TOOL) {
+      const hit = (e.target as Element).closest('[data-object-id]');
+      const hitObj = hit ? doc.objects[hit.getAttribute('data-object-id') ?? ''] : undefined;
+      if (!hitObj || hitObj.locked) return;
+      const trimPlugin = pluginRegistry.get(hitObj.pluginId);
+      if (!trimPlugin?.trim) return;
+      const pick = pickEdge(hitObj, world);
+      if (!pick) return;
+      const keeps = computeTrimKeeps(doc.objects, pluginRegistry, hitObj.id, world, pick);
+      if (!keeps) return;
+      const pieces = trimPlugin.trim(hitObj.props, hitObj.transform, keeps);
+      if (pieces) doc.applyTrim(hitObj.id, pieces);
+      // トリムモードは維持(連続してトリムできる。Escで終了)
+      return;
+    }
+
     // 配置ツール
     if (activeTool !== 'select') {
       const plugin = pluginRegistry.get(activeTool);
@@ -641,6 +670,23 @@ export function CanvasStage() {
           setSegPicks(picks);
         }
         return;
+      }
+
+      // エッジバインド対応ツール(長さマーク): 背景でなくオブジェクトを
+      // クリックしたら、そのエッジ/円へバインドして生成する
+      if (plugin.createFromEdge) {
+        const hit = (e.target as Element).closest('[data-object-id]');
+        const hitObj = hit ? doc.objects[hit.getAttribute('data-object-id') ?? ''] : undefined;
+        if (hitObj) {
+          const pick = pickEdge(hitObj, world);
+          const refs = pick ? plugin.createFromEdge(pick) : null;
+          if (refs) {
+            doc.addObject({ ...createSceneObject(plugin, world, doc.nextZIndex), refs });
+            useToolStore.getState().setActiveTool('select');
+            return;
+          }
+        }
+        // オブジェクト以外(背景)や非対応オブジェクトは通常のドラッグ配置へ
       }
 
       const position = snapEnabled ? snapPoint(world, gridSize) : world;

@@ -16,8 +16,22 @@ export const TANGENT_TOOL = 'tangent';
 export const PARALLEL_TOOL = 'parallel';
 export const PERPENDICULAR_TOOL = 'perpendicular';
 export const COINCIDENT_TOOL = 'coincident';
+export const TRIM_TOOL = 'trim';
 
 export const OPERATION_TOOLS: OperationTool[] = [
+  {
+    id: TRIM_TOOL,
+    name: 'トリム',
+    category: '編集',
+    Icon: () => (
+      <svg width="20" height="20" viewBox="0 0 24 24">
+        <circle cx="7" cy="7" r="2.4" fill="none" stroke="currentColor" strokeWidth="1.6" />
+        <circle cx="7" cy="17" r="2.4" fill="none" stroke="currentColor" strokeWidth="1.6" />
+        <line x1="8.9" y1="8.4" x2="20" y2="18" stroke="currentColor" strokeWidth="1.6" />
+        <line x1="8.9" y1="15.6" x2="20" y2="6" stroke="currentColor" strokeWidth="1.6" />
+      </svg>
+    ),
+  },
   {
     id: TANGENT_TOOL,
     name: '接線',

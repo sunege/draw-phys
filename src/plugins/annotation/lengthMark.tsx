@@ -124,7 +124,7 @@ export const lengthMarkPlugin: PhysicsObjectPlugin<LengthMarkProps> = {
     { key: 'offset', label: 'ラベル位置', type: 'number', min: 0, step: 2 },
     { key: 'perpOffset', label: 'オフセット', type: 'number', step: 2 },
     { key: 'arrowSize', label: '矢印サイズ', type: 'number', min: 1, step: 1 },
-    { key: 'capSize', label: '端の大きさ', type: 'number', min: 1, step: 1 },
+    { key: 'capSize', label: '端の大きさ', type: 'number', min: 0, step: 1 },
     { key: 'fontSize', label: 'ラベルサイズ', type: 'number', min: 6, step: 1 },
     { key: 'decimals', label: '小数桁', type: 'number', min: 0, max: 3, step: 1 },
     labelBgField,
@@ -229,6 +229,16 @@ export const lengthMarkPlugin: PhysicsObjectPlugin<LengthMarkProps> = {
   createFromDrag(start, end) {
     const { length, transform } = lineFromDrag(start, end, 80);
     return { props: { ...this.defaultProps, length }, transform };
+  },
+  // オブジェクトのエッジ(線分)/円周をクリックしたら、その測定にバインドする
+  createFromEdge(pick) {
+    if (pick.kind === 'segment') {
+      return [
+        { role: 'p0', targetId: pick.targetId, kind: 'segment', segIndex: pick.segIndex, t: 0 },
+        { role: 'p1', targetId: pick.targetId, kind: 'segment', segIndex: pick.segIndex, t: 1 },
+      ];
+    }
+    return [{ role: 'circle', targetId: pick.targetId, kind: 'circle', t: pick.t }];
   },
   exportStyles: buildKatexExportCss,
 };

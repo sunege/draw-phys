@@ -1,8 +1,19 @@
-import { OPERATION_TOOLS } from '../canvas/tools';
+import { OPERATION_TOOLS, type OperationTool } from '../canvas/tools';
 import { pluginRegistry } from '../core/registry';
 import { useDocumentStore } from '../state/documentStore';
 import { useToolStore } from '../state/toolStore';
 import styles from './Toolbox.module.css';
+
+/** 操作ツールをカテゴリ別にまとめる(登録順を保つ) */
+function operationToolsByCategory(): [string, OperationTool[]][] {
+  const map = new Map<string, OperationTool[]>();
+  for (const tool of OPERATION_TOOLS) {
+    const list = map.get(tool.category);
+    if (list) list.push(tool);
+    else map.set(tool.category, [tool]);
+  }
+  return [...map.entries()];
+}
 
 /** 選択ツールのアイコン */
 function SelectIcon() {
@@ -48,24 +59,26 @@ export function Toolbox() {
           ))}
         </div>
       ))}
-      <div className={styles.section}>
-        <h3 className={styles.heading}>拘束</h3>
-        {OPERATION_TOOLS.map((tool) => (
-          <button
-            key={tool.id}
-            type="button"
-            className={activeTool === tool.id ? styles.toolActive : styles.tool}
-            onClick={() => {
-              // 拘束は選択中オブジェクトを1つ目に選べるよう、選択を解除する
-              clearSelection();
-              setActiveTool(tool.id);
-            }}
-          >
-            <tool.Icon />
-            <span>{tool.name}</span>
-          </button>
-        ))}
-      </div>
+      {operationToolsByCategory().map(([category, tools]) => (
+        <div key={category} className={styles.section}>
+          <h3 className={styles.heading}>{category}</h3>
+          {tools.map((tool) => (
+            <button
+              key={tool.id}
+              type="button"
+              className={activeTool === tool.id ? styles.toolActive : styles.tool}
+              onClick={() => {
+                // 拘束/トリムは選択中オブジェクトを1つ目に選べるよう、選択を解除する
+                clearSelection();
+                setActiveTool(tool.id);
+              }}
+            >
+              <tool.Icon />
+              <span>{tool.name}</span>
+            </button>
+          ))}
+        </div>
+      ))}
     </aside>
   );
 }

@@ -49,11 +49,15 @@ export function normalizeFormula(formula: string): string {
 }
 
 function renderHtml(formula: string): string {
-  return katex.renderToString(normalizeFormula(formula), {
+  const html = katex.renderToString(normalizeFormula(formula), {
     throwOnError: false,
     displayMode: true,
     output: 'html',
   });
+  // displayMode の .katex-display は上下に margin:1em(=2em分)を持ち、
+  // 文字の高さより縦幅が大きくなる。マージンを消して数式の高さにフィットさせる
+  // (実測・描画の両方に効くので、縦は文字高+左右と同じパディングになる)。
+  return html.replace('class="katex-display"', 'class="katex-display" style="margin:0"');
 }
 
 /**

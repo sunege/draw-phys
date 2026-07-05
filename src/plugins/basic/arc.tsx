@@ -1,4 +1,5 @@
-import type { PhysicsObjectPlugin } from '../../core/plugin';
+import { normalizeAngle180, normalizeAngle360 } from '../../core/geometry';
+import type { PhysicsObjectPlugin, TrimPiece } from '../../core/plugin';
 import type { Point, Rect } from '../../core/types';
 import { CenterMark } from './CenterMark';
 import { centerDefaults, centerFields } from './centerFields';
@@ -136,6 +137,24 @@ export const arcPlugin: PhysicsObjectPlugin<ArcProps> = {
     endAngle: props.endAngle,
   }),
   applyScale: (props, fx) => ({ ...props, radius: props.radius * fx }),
+  // トリム: 残す各区間[fromDeg,toDeg]を新しい円弧として作り直す(掃引の一部を残す)
+  trim(props, transform, keeps) {
+    const pieces: TrimPiece[] = [];
+    for (const keep of keeps) {
+      if (keep.kind !== 'arc') continue;
+      if ((normalizeAngle360(keep.toDeg - keep.fromDeg) || 360) < 0.5) continue; // ごく短い残片は捨てる
+      pieces.push({
+        pluginId: 'core.arc',
+        props: {
+          ...props,
+          startAngle: normalizeAngle180(keep.fromDeg),
+          endAngle: normalizeAngle180(keep.toDeg),
+        },
+        transform,
+      });
+    }
+    return pieces;
+  },
   capabilities: { rotatable: true, scalable: 'uniform' },
   placement: 'click',
 };

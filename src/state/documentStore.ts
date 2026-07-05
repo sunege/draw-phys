@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { solveConstraints, solveConstraintsInPlace } from '../core/constraints';
 import { sortedObjects, type SceneObject, type SceneObjects } from '../core/document';
 import { unionRects, worldBounds } from '../core/geometry';
+import type { TrimPiece } from '../core/plugin';
 import { pluginRegistry } from '../core/registry';
 import type { ObjectRef, Rect, Transform } from '../core/types';
 
@@ -52,6 +53,12 @@ interface DocumentState {
   /** 複数オブジェクトを1履歴エントリで追加し、選択する(貼り付け用) */
   addObjects(objs: SceneObject[]): void;
   removeObjects(ids: string[]): void;
+  /**
+   * トリム結果を適用する(履歴1エントリ)。pieces から対象を作り直す:
+   * 0件=対象削除+参照掃除 / 1件=対象更新 / 2件=分割(対象更新+新規追加)。
+   * 対象自身のrefは破棄する(手動編集をソルバが巻き戻さないよう自由な幾何にする)。
+   */
+  applyTrim(targetId: string, pieces: TrimPiece[]): void;
   /** プラグイン固有プロパティの更新(履歴に残る) */
   updateProps(id: string, patch: Record<string, unknown>): void;
   /** オブジェクトの参照(拘束)を差し替える。空配列で拘束解除(履歴に残る) */
@@ -166,6 +173,64 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         }
       });
       set({ selection: get().selection.filter((id) => !removed.has(id)) });
+    },
+
+    applyTrim(targetId, pieces) {
+      const { objects, selection } = get();
+      const target = objects[targetId];
+      if (!target) return;
+      const newIds: string[] = [];
+      let z = get().nextZIndex;
+      mutate((draft) => {
+        if (pieces.length === 0) {
+          // 全消し: 対象を削除し、対象を指すrefを他オブジェクトから掃除(拘束ごと削除)
+          delete draft[targetId];
+          for (const obj of Object.values(draft)) {
+            if (!obj.refs) continue;
+            const kept = obj.refs.filter((r) => r.targetId !== targetId);
+            if (kept.length !== obj.refs.length) {
+              if (kept.length) obj.refs = kept;
+              else delete obj.refs;
+            }
+          }
+          return;
+        }
+        // 先頭部品で対象を更新(pluginId変更=円→円弧に対応)。対象自身のrefは破棄
+        const first = pieces[0];
+        const fp = pluginRegistry.get(first.pluginId);
+        const t = draft[targetId];
+        t.pluginId = first.pluginId;
+        t.version = fp?.version ?? t.version;
+        t.props = first.props;
+        t.transform = first.transform;
+        delete t.refs;
+        // 分割で増えた部品は envelope を引き継いだ新規オブジェクト(新ID・refs無し)
+        for (let i = 1; i < pieces.length; i++) {
+          const pc = pieces[i];
+          const plg = pluginRegistry.get(pc.pluginId);
+          const id = crypto.randomUUID();
+          newIds.push(id);
+          draft[id] = {
+            id,
+            pluginId: pc.pluginId,
+            version: plg?.version ?? 1,
+            transform: pc.transform,
+            zIndex: z++,
+            locked: target.locked,
+            visible: target.visible,
+            props: pc.props,
+            ...(target.groupId ? { groupId: target.groupId } : {}),
+            ...(target.construction ? { construction: target.construction } : {}),
+          };
+        }
+      });
+      set({
+        nextZIndex: Math.max(get().nextZIndex, z),
+        selection:
+          pieces.length === 0
+            ? selection.filter((id) => id !== targetId)
+            : [targetId, ...newIds],
+      });
     },
 
     updateProps(id, patch) {

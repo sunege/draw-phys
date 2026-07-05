@@ -1,4 +1,5 @@
-import type { PhysicsObjectPlugin } from '../../core/plugin';
+import { localToWorld } from '../../core/geometry';
+import type { PhysicsObjectPlugin, TrimPiece } from '../../core/plugin';
 import {
   applyTangent,
   dashArray,
@@ -89,6 +90,26 @@ export const linePlugin: PhysicsObjectPlugin<LineProps> = {
   applyRefs: applyTangent,
   getAnchorPoint: tangentAnchorPoint,
   dragEndpointConstrained: dragTangentEndpoint,
+  // トリム: 残す各区間[from,to]を新しい線分として作り直す(端の短縮=1本, 中間削除=2本に分割)
+  trim(props, transform, keeps) {
+    const L = props.length;
+    const pieces: TrimPiece[] = [];
+    for (const keep of keeps) {
+      if (keep.kind !== 'segment') continue;
+      const x0 = -L / 2 + keep.from * L;
+      const x1 = -L / 2 + keep.to * L;
+      if (Math.abs(x1 - x0) < 1) continue; // 1px未満は捨てる
+      const a = localToWorld({ x: x0, y: 0 }, transform);
+      const b = localToWorld({ x: x1, y: 0 }, transform);
+      const seg = segmentFromEndpoints(a, b);
+      pieces.push({
+        pluginId: 'core.line',
+        props: { ...props, length: seg.length, tangentOffset: 0 },
+        transform: seg.transform,
+      });
+    }
+    return pieces;
+  },
   capabilities: { rotatable: true, scalable: 'none', construction: true },
   placement: 'drag-line',
   createFromDrag(start, end) {

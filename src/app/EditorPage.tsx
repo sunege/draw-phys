@@ -9,6 +9,7 @@ import { useWorkspaceStore } from '../state/workspaceStore';
 import { HintOverlay } from '../ui/HintOverlay';
 import { MenuBar } from '../ui/MenuBar';
 import { PropertyPanel } from '../ui/PropertyPanel';
+import { ToastOverlay } from '../ui/ToastOverlay';
 import { Toolbox } from '../ui/Toolbox';
 import { WorkspacePanel } from '../ui/WorkspacePanel';
 import styles from './EditorPage.module.css';
@@ -52,6 +53,7 @@ export function EditorPage() {
         <div className={styles.canvasArea}>
           <CanvasStage />
           <HintOverlay />
+          <ToastOverlay />
         </div>
         <PropertyPanel />
       </div>
