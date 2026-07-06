@@ -9,6 +9,7 @@ import {
   transformToString,
   unionRects,
   worldBounds,
+  worldToLocal,
 } from '../geometry';
 import { identityTransform } from '../types';
 
@@ -90,5 +91,18 @@ describe('geometry', () => {
     expect(transformToString({ x: 1, y: 2, rotation: 45, scaleX: 2, scaleY: 3 })).toBe(
       'translate(1 2) rotate(45) scale(2 3)',
     );
+  });
+
+  it('worldToLocalはlocalToWorldの逆変換(回転・スケールあり)', () => {
+    const t = { x: 30, y: -40, rotation: 37, scaleX: 2, scaleY: 0.5 };
+    const local = { x: 12, y: -7 };
+    const back = worldToLocal(localToWorld(local, t), t);
+    expect(back.x).toBeCloseTo(local.x);
+    expect(back.y).toBeCloseTo(local.y);
+    // ワールド→ローカル→ワールドも恒等
+    const world = { x: -5, y: 88 };
+    const fwd = localToWorld(worldToLocal(world, t), t);
+    expect(fwd.x).toBeCloseTo(world.x);
+    expect(fwd.y).toBeCloseTo(world.y);
   });
 });

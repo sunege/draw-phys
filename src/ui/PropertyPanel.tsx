@@ -310,6 +310,8 @@ export function PropertyPanel() {
           />
         </label>
       ))}
+      {/* プラグイン独自のパネルUI(グラフのプロット一覧など、スキーマで表せないもの) */}
+      {plugin.PanelExtra && <plugin.PanelExtra objectId={obj.id} props={obj.props} />}
       {obj.refs && obj.refs.length > 0 && (
         <div className={styles.actionRow}>
           <button

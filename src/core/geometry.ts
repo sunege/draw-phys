@@ -28,6 +28,12 @@ export function localToWorld(p: Point, t: Transform): Point {
   };
 }
 
+/** ワールド座標の点をローカル座標へ変換する(localToWorldの逆変換) */
+export function worldToLocal(p: Point, t: Transform): Point {
+  const v = rotateVec({ x: p.x - t.x, y: p.y - t.y }, -t.rotation);
+  return { x: v.x / t.scaleX, y: v.y / t.scaleY };
+}
+
 /** 矩形の4隅 */
 export function rectCorners(r: Rect): [Point, Point, Point, Point] {
   return [

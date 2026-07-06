@@ -1,0 +1,125 @@
+.section {
+  margin: 10px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid #eef0f3;
+}
+
+.section > summary {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1f2937;
+  cursor: pointer;
+  user-select: none;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.label {
+  flex-shrink: 0;
+  color: #374151;
+}
+
+.field input[type='number'],
+.field input[type='text'],
+.field select,
+.field textarea {
+  width: 110px;
+  padding: 3px 6px;
+  font-size: 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+}
+
+.field textarea {
+  resize: vertical;
+  font-family: inherit;
+}
+
+.field input[type='color'] {
+  width: 40px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* 2つの数値を横並びにする(位置補正 dx/dy など) */
+.pair {
+  display: flex;
+  gap: 4px;
+}
+
+.pair input[type='number'] {
+  width: 53px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.row button {
+  padding: 3px 8px;
+  font-size: 11px;
+  color: #374151;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.row button:hover:enabled {
+  background: #e5e7eb;
+}
+
+/* プロット1件分のカード */
+.card {
+  margin-bottom: 8px;
+  padding: 6px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.cardHead button {
+  padding: 1px 7px;
+  font-size: 11px;
+  color: #b91c1c;
+  background: #fff;
+  border: 1px solid #e5c4c4;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.error {
+  margin: -2px 0 6px;
+  font-size: 11px;
+  color: #c0392b;
+}
+
+.note {
+  margin: -2px 0 6px;
+  font-size: 11px;
+  color: #6b7280;
+}

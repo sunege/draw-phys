@@ -114,6 +114,12 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
   /** プロパティパネルを自動生成するためのスキーマ */
   propertySchema: PropertyField[];
   /**
+   * プロパティパネル下部に差し込むプラグイン独自UI(任意)。
+   * スキーマでは表現できない配列・ボタン等を持つプラグイン(グラフ等)が使う。
+   * コンポーネント側で documentStore の updateProps 等を直接呼んで props を更新する。
+   */
+  PanelExtra?: ComponentType<{ objectId: string; props: P }>;
+  /**
    * ローカル座標系でのSVG描画。
    * ラベル付きオブジェクトは transform(回転の打ち消し用)や objectId
    * (ラベルドラッグの当たり判定用)、interactive(操作可否)を受け取る。
