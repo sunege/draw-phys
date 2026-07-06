@@ -1,9 +1,22 @@
+import { useEffect, useRef, useState } from 'react';
 import { useDocumentStore } from '../../state/documentStore';
 import type { LineStyle } from '../basic/lineUtils';
 import type { LabelContent } from '../basic/objectLabel';
 import styles from './GraphPanel.module.css';
-import { isValidRange } from './graphMath';
-import type { GraphProps, GraphRange } from './graphTypes';
+import { compileExpression } from './exprParser';
+import { isValidRange, parseScatterText, scatterToText } from './graphMath';
+import {
+  createFunctionPlot,
+  createScatterPlot,
+  GRAPH_TEMPLATES,
+  type FitKind,
+  type FunctionPlot,
+  type GraphPlot,
+  type GraphProps,
+  type GraphRange,
+  type ScatterMarker,
+  type ScatterPlot,
+} from './graphTypes';
 
 /** 数値フィールド(NaNは無視) */
 function Num({
@@ -175,6 +188,215 @@ function OffsetPair({
   );
 }
 
+/** 関数プロット1件の編集カード */
+function FunctionCard({
+  plot,
+  index,
+  defaultDomain,
+  onChange,
+  onRemove,
+}: {
+  plot: FunctionPlot;
+  index: number;
+  /** 定義域を有効にしたときの初期値(現在の表示範囲) */
+  defaultDomain: { min: number; max: number };
+  onChange: (id: string, patch: Partial<FunctionPlot>) => void;
+  onRemove: (id: string) => void;
+}) {
+  const compiled = compileExpression(plot.expression);
+  const setDomain = (value: string, key: 'min' | 'max') => {
+    const n = Number(value);
+    if (Number.isNaN(n) || !plot.domain) return;
+    onChange(plot.id, { domain: { ...plot.domain, [key]: n } });
+  };
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHead}>
+        <span>関数 {index + 1}</span>
+        <button type="button" onClick={() => onRemove(plot.id)}>
+          削除
+        </button>
+      </div>
+      <label className={styles.field}>
+        <span className={styles.label}>y =</span>
+        <input
+          type="text"
+          value={plot.expression}
+          placeholder="例: 2*sin(x)"
+          onChange={(e) => onChange(plot.id, { expression: e.target.value })}
+        />
+      </label>
+      {!compiled.ok && <div className={styles.error}>{compiled.error}</div>}
+      <div className={styles.row}>
+        {GRAPH_TEMPLATES.map((t) => (
+          <button
+            key={t.label}
+            type="button"
+            title={`y = ${t.expression}`}
+            onClick={() => onChange(plot.id, { expression: t.expression })}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <Color label="色" value={plot.color} onChange={(c) => onChange(plot.id, { color: c })} />
+      <Num
+        label="線幅"
+        value={plot.strokeWidth}
+        min={0.5}
+        step={0.5}
+        onChange={(n) => onChange(plot.id, { strokeWidth: n })}
+      />
+      <StyleSelect
+        label="線種"
+        value={plot.lineStyle}
+        onChange={(s) => onChange(plot.id, { lineStyle: s })}
+      />
+      <Check
+        label="定義域を限定"
+        checked={plot.domain !== null}
+        onChange={(b) => onChange(plot.id, { domain: b ? { ...defaultDomain } : null })}
+      />
+      {plot.domain && (
+        <div className={styles.field}>
+          <span className={styles.label}>定義域</span>
+          <span className={styles.pair}>
+            <input
+              type="number"
+              value={plot.domain.min}
+              onChange={(e) => setDomain(e.target.value, 'min')}
+            />
+            <input
+              type="number"
+              value={plot.domain.max}
+              onChange={(e) => setDomain(e.target.value, 'max')}
+            />
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 散布図1件の編集カード */
+function ScatterCard({
+  plot,
+  index,
+  onChange,
+  onRemove,
+}: {
+  plot: ScatterPlot;
+  index: number;
+  onChange: (id: string, patch: Partial<ScatterPlot>) => void;
+  onRemove: (id: string) => void;
+}) {
+  // 入力中の生テキストを保持する(整形で編集中の行が壊れないように)
+  const [text, setText] = useState(() => scatterToText(plot.points));
+  const [skipped, setSkipped] = useState(0);
+  const textRef = useRef(text);
+  textRef.current = text;
+  // Undo等の外部変更でデータが変わったらテキストを作り直す
+  useEffect(() => {
+    const parsed = parseScatterText(textRef.current).points;
+    if (scatterToText(parsed) !== scatterToText(plot.points)) {
+      setText(scatterToText(plot.points));
+      setSkipped(0);
+    }
+  }, [plot.points]);
+  const onTextChange = (t: string) => {
+    setText(t);
+    const r = parseScatterText(t);
+    setSkipped(r.skipped);
+    onChange(plot.id, { points: r.points });
+  };
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHead}>
+        <span>データ点 {index + 1}</span>
+        <button type="button" onClick={() => onRemove(plot.id)}>
+          削除
+        </button>
+      </div>
+      <textarea
+        className={styles.dataArea}
+        rows={5}
+        value={text}
+        placeholder={'1行に「x y」\n例: 1.0 2.0'}
+        title="タブ・カンマ・空白区切り。Excelからの貼り付けに対応"
+        onChange={(e) => onTextChange(e.target.value)}
+      />
+      <div className={styles.note}>
+        {plot.points.length}点{skipped > 0 ? `(${skipped}行スキップ)` : ''}
+      </div>
+      <label className={styles.field}>
+        <span className={styles.label}>マーカー</span>
+        <select
+          value={plot.marker}
+          onChange={(e) => onChange(plot.id, { marker: e.target.value as ScatterMarker })}
+        >
+          <option value="circle">塗り丸</option>
+          <option value="circleOpen">白丸</option>
+          <option value="cross">バツ</option>
+          <option value="square">四角</option>
+        </select>
+      </label>
+      <Num
+        label="サイズ"
+        value={plot.markerSize}
+        min={1}
+        step={0.5}
+        onChange={(n) => onChange(plot.id, { markerSize: n })}
+      />
+      <Color label="色" value={plot.color} onChange={(c) => onChange(plot.id, { color: c })} />
+      <label className={styles.field}>
+        <span className={styles.label}>近似直線</span>
+        <select
+          value={plot.fit}
+          onChange={(e) => onChange(plot.id, { fit: e.target.value as FitKind })}
+        >
+          <option value="none">なし</option>
+          <option value="linear">一次 y=ax+b</option>
+          <option value="proportional">比例 y=ax</option>
+        </select>
+      </label>
+      {plot.fit !== 'none' && (
+        <>
+          <Color
+            label="直線の色"
+            value={plot.fitColor}
+            onChange={(c) => onChange(plot.id, { fitColor: c })}
+          />
+          <Num
+            label="直線の線幅"
+            value={plot.fitStrokeWidth}
+            min={0.5}
+            step={0.5}
+            onChange={(n) => onChange(plot.id, { fitStrokeWidth: n })}
+          />
+          <StyleSelect
+            label="直線の線種"
+            value={plot.fitLineStyle}
+            onChange={(s) => onChange(plot.id, { fitLineStyle: s })}
+          />
+          <Check
+            label="式を表示"
+            checked={plot.showFitEq}
+            onChange={(b) => onChange(plot.id, { showFitEq: b })}
+          />
+          <Num
+            label="係数の桁"
+            value={plot.fitDecimals}
+            min={0}
+            max={6}
+            step={1}
+            onChange={(n) => onChange(plot.id, { fitDecimals: Math.round(n) })}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
 /**
  * グラフのプロパティパネル拡張。
  * スキーマでは表せない範囲リセット・軸ラベル・グリッド詳細・プロット一覧を提供する。
@@ -188,6 +410,11 @@ export function GraphPanel({ objectId, props }: { objectId: string; props: Graph
   const setRange = (patch: Partial<GraphRange>) => {
     if (isValidRange({ ...range, ...patch })) up(patch);
   };
+
+  const patchPlot = (id: string, patch: Partial<FunctionPlot> | Partial<ScatterPlot>) => {
+    up({ plots: props.plots.map((p) => (p.id === id ? ({ ...p, ...patch } as GraphPlot) : p)) });
+  };
+  const removePlot = (id: string) => up({ plots: props.plots.filter((p) => p.id !== id) });
 
   // 座標スタイルのワンクリック切替
   const applyPreset = (preset: 'grid' | 'ticks' | 'plain') => {
@@ -236,6 +463,46 @@ export function GraphPanel({ objectId, props }: { objectId: string; props: Graph
             現在を既定にする
           </button>
         </div>
+      </details>
+
+      <details open className={styles.section}>
+        <summary>プロット</summary>
+        <div className={styles.row}>
+          <button
+            type="button"
+            title="関数のグラフを追加"
+            onClick={() => up({ plots: [...props.plots, createFunctionPlot(props.plots.length)] })}
+          >
+            ＋関数
+          </button>
+          <button
+            type="button"
+            title="散布図(データ点)を追加"
+            onClick={() => up({ plots: [...props.plots, createScatterPlot(props.plots.length)] })}
+          >
+            ＋データ点
+          </button>
+        </div>
+        {props.plots.map((plot, i) =>
+          plot.kind === 'function' ? (
+            <FunctionCard
+              key={plot.id}
+              plot={plot}
+              index={i}
+              defaultDomain={{ min: props.xMin, max: props.xMax }}
+              onChange={patchPlot}
+              onRemove={removePlot}
+            />
+          ) : (
+            <ScatterCard
+              key={plot.id}
+              plot={plot}
+              index={i}
+              onChange={patchPlot}
+              onRemove={removePlot}
+            />
+          ),
+        )}
       </details>
 
       <details className={styles.section}>

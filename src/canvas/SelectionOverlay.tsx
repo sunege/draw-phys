@@ -133,6 +133,23 @@ function SingleSelection({ obj, zoom }: { obj: SceneObject; zoom: number }) {
           </g>
         );
       })}
+      {/* プラグイン定義のパーツハンドル(グラフの原点など)。movePartでドラッグ */}
+      {plugin.movePart &&
+        plugin.getParts?.(obj.props).map((part) => (
+          <circle
+            key={part.id}
+            data-handle={`part:${part.id}`}
+            cx={part.local.x * t.scaleX}
+            cy={part.local.y * t.scaleY}
+            r={6 / zoom}
+            fill="rgba(43,125,233,0.15)"
+            stroke={STROKE}
+            strokeWidth={1.5 / zoom}
+            style={{ cursor: 'move' }}
+          >
+            {part.title && <title>{part.title}</title>}
+          </circle>
+        ))}
       {/* 接続点ハンドル(接線拘束された線の接点。円周上をスライドする) */}
       {anchorLocal && (
         <circle

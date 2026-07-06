@@ -15,6 +15,7 @@ import {
   snapPoint,
   transformToString,
   worldBounds,
+  worldToLocal,
 } from '../core/geometry';
 import type { AnyPlugin, EdgePick, SegmentPick } from '../core/plugin';
 import { pluginRegistry } from '../core/registry';
@@ -38,7 +39,14 @@ import {
   type AnchorBind,
   type EndpointAttach,
 } from './snapping';
-import { COINCIDENT_TOOL, PARALLEL_TOOL, PERPENDICULAR_TOOL, TANGENT_TOOL, TRIM_TOOL } from './tools';
+import {
+  COINCIDENT_TOOL,
+  GRAPH_RANGE_TOOL,
+  PARALLEL_TOOL,
+  PERPENDICULAR_TOOL,
+  TANGENT_TOOL,
+  TRIM_TOOL,
+} from './tools';
 import { computeTrimKeeps } from './trim';
 import {
   computeRotationAboutPivot,
@@ -113,7 +121,26 @@ type DragState =
       moved: boolean;
     }
   | { mode: 'marquee'; start: Point; additive: boolean }
-  | { mode: 'place-line'; plugin: AnyPlugin; start: Point };
+  | { mode: 'place-line'; plugin: AnyPlugin; start: Point }
+  | {
+      /** プラグイン定義のパーツハンドル(グラフの原点など)のドラッグ */
+      mode: 'partDrag';
+      id: string;
+      partId: string;
+      before: Transform;
+      beforeProps: Record<string, unknown>;
+      plugin: AnyPlugin;
+      startWorld: Point;
+      moved: boolean;
+    }
+  | {
+      /** グラフ範囲ツール: ドラッグ矩形で対象の表示範囲を指定する */
+      mode: 'zoomRect';
+      id: string;
+      plugin: AnyPlugin;
+      start: Point;
+      moved: boolean;
+    };
 
 /** ドラッグ配置中のゴースト表示 */
 interface PlacementPreview {
@@ -253,6 +280,8 @@ export function CanvasStage() {
   const [panning, setPanning] = useState(false);
   const [guides, setGuides] = useState<Guides>({});
   const [marquee, setMarquee] = useState<Rect | null>(null);
+  // グラフ範囲ツールのドラッグ矩形(マーキーと区別するため別state・別色)
+  const [rangeRect, setRangeRect] = useState<Rect | null>(null);
   /** 回転軸マーカー(赤)。回転ハンドルに触れると表示し、ドラッグで移動できる。選択中のみ有効 */
   const [rotatePivot, setRotatePivot] = useState<{ id: string; world: Point } | null>(null);
   const [preview, setPreview] = useState<PlacementPreview | null>(null);
@@ -450,6 +479,8 @@ export function CanvasStage() {
       );
     } else if (activeTool === TRIM_TOOL) {
       setHint({ title: 'トリム', message: '切り取る線・円弧・円のエッジをクリック（Escで終了）' });
+    } else if (activeTool === GRAPH_RANGE_TOOL) {
+      setHint({ title: 'グラフ範囲', message: 'グラフ内をドラッグして表示範囲を指定（Escで終了）' });
     } else {
       setHint(null);
     }
@@ -642,6 +673,18 @@ export function CanvasStage() {
       return;
     }
 
+    // グラフ範囲モード: zoomToRect を実装したオブジェクトの上でドラッグして表示範囲を指定
+    if (activeTool === GRAPH_RANGE_TOOL) {
+      const hit = (e.target as Element).closest('[data-object-id]');
+      const hitObj = hit ? doc.objects[hit.getAttribute('data-object-id') ?? ''] : undefined;
+      if (!hitObj || hitObj.locked) return;
+      const rangePlugin = pluginRegistry.get(hitObj.pluginId);
+      if (!rangePlugin?.zoomToRect) return;
+      doc.setSelection([hitObj.id]);
+      dragRef.current = { mode: 'zoomRect', id: hitObj.id, plugin: rangePlugin, start: world, moved: false };
+      return;
+    }
+
     // 配置ツール
     if (activeTool !== 'select') {
       const plugin = pluginRegistry.get(activeTool);
@@ -765,6 +808,20 @@ export function CanvasStage() {
             endpointPin,
             moved: false,
           };
+        } else if (handleKind.startsWith('part:')) {
+          // プラグイン定義のパーツハンドル(グラフの原点ハンドルなど)
+          if (!obj.locked && plugin.movePart) {
+            dragRef.current = {
+              mode: 'partDrag',
+              id: obj.id,
+              partId: handleKind.slice('part:'.length),
+              before: obj.transform,
+              beforeProps: obj.props,
+              plugin,
+              startWorld: world,
+              moved: false,
+            };
+          }
         } else {
           const [sx, sy] = handleKind.replace('scale:', '').split(',').map(Number);
           let before = obj.transform;
@@ -1095,6 +1152,30 @@ export function CanvasStage() {
       return;
     }
 
+    if (drag.mode === 'partDrag' && drag.plugin.movePart) {
+      const props = drag.plugin.movePart(
+        drag.beforeProps,
+        drag.before,
+        drag.partId,
+        drag.startWorld,
+        world,
+      );
+      doc.setObjectTransient(drag.id, { props });
+      drag.moved = true;
+      return;
+    }
+
+    if (drag.mode === 'zoomRect') {
+      setRangeRect({
+        x: Math.min(drag.start.x, world.x),
+        y: Math.min(drag.start.y, world.y),
+        width: Math.abs(world.x - drag.start.x),
+        height: Math.abs(world.y - drag.start.y),
+      });
+      drag.moved = true;
+      return;
+    }
+
     if (drag.mode === 'markOffset' && drag.plugin.dragOffset) {
       const props = drag.plugin.dragOffset(drag.beforeProps, drag.before, world);
       doc.setObjectTransient(drag.id, { props });
@@ -1178,6 +1259,28 @@ export function CanvasStage() {
       }
     } else if (drag.mode === 'labelDrag' && drag.moved) {
       doc.commitObject(drag.id, { transform: drag.before, props: drag.beforeProps });
+    } else if (drag.mode === 'partDrag' && drag.moved) {
+      doc.commitObject(drag.id, { transform: drag.before, props: drag.beforeProps });
+    } else if (drag.mode === 'zoomRect') {
+      // グラフ範囲の確定。極小ドラッグ(実質クリック)は無視。ツールは維持(Escで終了)
+      setRangeRect(null);
+      const { zoom: z } = useViewportStore.getState();
+      const world = worldFromEvent(e);
+      if (
+        drag.moved &&
+        Math.abs(world.x - drag.start.x) > 4 / z &&
+        Math.abs(world.y - drag.start.y) > 4 / z
+      ) {
+        const obj = doc.objects[drag.id];
+        if (obj && drag.plugin.zoomToRect) {
+          const next = drag.plugin.zoomToRect(
+            obj.props,
+            worldToLocal(drag.start, obj.transform),
+            worldToLocal(world, obj.transform),
+          );
+          if (next) doc.updateProps(drag.id, next);
+        }
+      }
     } else if (drag.mode === 'markOffset' && drag.moved) {
       doc.commitObject(drag.id, { transform: drag.before, props: drag.beforeProps });
     } else if (drag.mode === 'anchor' && drag.moved) {
@@ -1329,6 +1432,18 @@ export function CanvasStage() {
               fill="rgba(43, 125, 233, 0.08)"
               stroke="#2b7de9"
               strokeWidth={1 / zoom}
+            />
+          )}
+          {rangeRect && (
+            <rect
+              x={rangeRect.x}
+              y={rangeRect.y}
+              width={rangeRect.width}
+              height={rangeRect.height}
+              fill="rgba(46, 158, 91, 0.08)"
+              stroke="#2e9e5b"
+              strokeWidth={1 / zoom}
+              strokeDasharray={`${4 / zoom} ${3 / zoom}`}
             />
           )}
           {guides.marker && (

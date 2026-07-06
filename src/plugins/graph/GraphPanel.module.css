@@ -112,6 +112,19 @@
   cursor: pointer;
 }
 
+/* 散布図データの入力欄(カード幅いっぱい) */
+.dataArea {
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 4px 6px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  resize: vertical;
+}
+
 .error {
   margin: -2px 0 6px;
   font-size: 11px;

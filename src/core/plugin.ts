@@ -175,6 +175,23 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
    */
   moveLabel?(props: P, transform: Transform, fromWorld: Point, toWorld: Point): P;
   /**
+   * 単一選択中に表示する追加ドラッグハンドル(ローカル座標)。
+   * グラフの原点ハンドルなど、端点編集に当てはまらない操作点に使う。
+   * movePart とセットで定義する。
+   */
+  getParts?(props: P): { id: string; local: Point; title?: string }[];
+  /**
+   * パーツハンドルのドラッグ(moveLabelと同型)。ドラッグ開始時の props と
+   * 開始点 fromWorld・現在点 toWorld から毎回新しい props を計算して返す。
+   */
+  movePart?(props: P, transform: Transform, partId: string, fromWorld: Point, toWorld: Point): P;
+  /**
+   * 矩形ズーム操作ツール(グラフ範囲)の受け口。ドラッグ矩形の対角2点
+   * (ローカル座標)から新しい props を返す。無効な矩形(小さすぎる等)は null。
+   * これを実装したプラグインだけがツールの対象になる。
+   */
+  zoomToRect?(props: P, a: Point, b: Point): P | null;
+  /**
    * 拡大縮小を transform ではなく props へ反映する箱型オブジェクト用。
    * これを定義したプラグインは transform の scale を常に 1 に保ち、
    * サイズ(幅・半径・フォントサイズ等)を props として持つため、

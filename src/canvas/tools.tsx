@@ -17,6 +17,7 @@ export const PARALLEL_TOOL = 'parallel';
 export const PERPENDICULAR_TOOL = 'perpendicular';
 export const COINCIDENT_TOOL = 'coincident';
 export const TRIM_TOOL = 'trim';
+export const GRAPH_RANGE_TOOL = 'graphRange';
 
 export const OPERATION_TOOLS: OperationTool[] = [
   {
@@ -29,6 +30,27 @@ export const OPERATION_TOOLS: OperationTool[] = [
         <circle cx="7" cy="17" r="2.4" fill="none" stroke="currentColor" strokeWidth="1.6" />
         <line x1="8.9" y1="8.4" x2="20" y2="18" stroke="currentColor" strokeWidth="1.6" />
         <line x1="8.9" y1="15.6" x2="20" y2="6" stroke="currentColor" strokeWidth="1.6" />
+      </svg>
+    ),
+  },
+  {
+    id: GRAPH_RANGE_TOOL,
+    name: 'グラフ範囲',
+    category: '編集',
+    Icon: () => (
+      <svg width="20" height="20" viewBox="0 0 24 24">
+        <rect
+          x="3"
+          y="4"
+          width="13"
+          height="10"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeDasharray="3 2"
+        />
+        <circle cx="15" cy="15" r="4.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+        <line x1="18.2" y1="18.2" x2="22" y2="22" stroke="currentColor" strokeWidth="1.8" />
       </svg>
     ),
   },

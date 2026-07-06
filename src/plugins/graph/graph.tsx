@@ -4,7 +4,7 @@ import type { Point, Rect } from '../../core/types';
 import { ObjectLabel } from '../basic/LabelView';
 import { buildKatexExportCss } from '../basic/latex';
 import { isLabelEmpty, labelLocalBounds } from '../basic/objectLabel';
-import { GraphAxes, GraphGrid } from './GraphLayers';
+import { GraphAxes, GraphGrid, GraphPlots } from './GraphLayers';
 import { GraphPanel } from './GraphPanel';
 import {
   ARROW_EXT,
@@ -14,7 +14,14 @@ import {
   xLabelAnchor,
   yLabelAnchor,
 } from './graphLayout';
-import { axisPositions, formatTick, originLocal, tickValues } from './graphMath';
+import {
+  axisPositions,
+  formatTick,
+  originLocal,
+  panRangeByLocalDelta,
+  tickValues,
+  zoomRangeToLocalRect,
+} from './graphMath';
 import { defaultGraphProps, type GraphProps } from './graphTypes';
 
 export const graphPlugin: PhysicsObjectPlugin<GraphProps> = {
@@ -49,14 +56,27 @@ export const graphPlugin: PhysicsObjectPlugin<GraphProps> = {
     const hw = v.width / 2;
     const hh = v.height / 2;
     const rotation = transform?.rotation ?? 0;
+    // 曲線を箱内へ収めるクリップ。書き出しでは objectId が渡らないためサイズ由来のidにする
+    // (同一サイズのグラフ同士でid重複しても定義は同じなので無害。PatternDefsと同じ扱い)
+    const clipId = `graph-clip-${v.width}x${v.height}`;
     return (
       <g>
+        <defs>
+          <clipPath id={clipId}>
+            <rect x={-hw} y={-hh} width={v.width} height={v.height} />
+          </clipPath>
+        </defs>
         {/* 全域の当たり判定(書き出しには出さない) */}
         {interactive && (
           <rect x={-hw} y={-hh} width={v.width} height={v.height} fill="transparent" />
         )}
         <GraphGrid props={props} v={v} stepX={stepX} stepY={stepY} />
         {props.showAxes && <GraphAxes props={props} v={v} stepX={stepX} stepY={stepY} />}
+        {props.plots.length > 0 && (
+          <g clipPath={`url(#${clipId})`}>
+            <GraphPlots props={props} v={v} />
+          </g>
+        )}
         {props.showAxes && (
           <>
             <ObjectLabel
@@ -197,6 +217,25 @@ export const graphPlugin: PhysicsObjectPlugin<GraphProps> = {
       return { ...props, xLabelDx: props.xLabelDx + d.x, xLabelDy: props.xLabelDy + d.y };
     }
     return { ...props, yLabelDx: props.yLabelDx + d.x, yLabelDy: props.yLabelDy + d.y };
+  },
+  getParts: (props) => {
+    const v = toView(props);
+    return [{ id: 'origin', local: originLocal(v), title: '原点をドラッグして表示範囲を移動' }];
+  },
+  movePart: (props, transform, partId, fromWorld, toWorld) => {
+    if (partId !== 'origin') return props;
+    // 原点の表示位置がポインタに追従するよう、表示範囲を逆方向へシフト(パン)
+    const v = toView(props);
+    const d = rotateVec(
+      { x: toWorld.x - fromWorld.x, y: toWorld.y - fromWorld.y },
+      -transform.rotation,
+    );
+    return { ...props, ...panRangeByLocalDelta(v, d, v) };
+  },
+  zoomToRect: (props, a, b) => {
+    const v = toView(props);
+    const range = zoomRangeToLocalRect(v, a, b);
+    return range ? { ...props, ...range } : null;
   },
   capabilities: { rotatable: false, scalable: 'both' },
   placement: 'click',

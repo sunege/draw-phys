@@ -19,12 +19,15 @@ npm test       # vitest run（全テスト）
 
 ### プラグイン経由でのみ図形を扱う
 
-中核契約は `src/core/plugin.ts` の `PhysicsObjectPlugin<P>`。本体（キャンバス・選択・Undo/Redo・保存・出力）は図形種別を知らず `pluginRegistry`(`src/core/registry.ts`)経由でのみアクセス。**新図形＝1ファイル新規＋`src/plugins/index.ts`に登録1行**（`要件.md`§16, 不変目標）。プラグインは `src/plugins/{basic,mechanics,annotation}/` にカテゴリ分けし、`category`がツールボックス見出し。主なフック（多くは任意）:
+中核契約は `src/core/plugin.ts` の `PhysicsObjectPlugin<P>`。本体（キャンバス・選択・Undo/Redo・保存・出力）は図形種別を知らず `pluginRegistry`(`src/core/registry.ts`)経由でのみアクセス。**新図形＝1ファイル新規＋`src/plugins/index.ts`に登録1行**（`要件.md`§16, 不変目標）。プラグインは `src/plugins/{basic,mechanics,annotation,graph}/` にカテゴリ分けし、`category`がツールボックス見出し。主なフック（多くは任意）:
 - `Renderer({props,transform?,objectId?,interactive?})` — **ローカル座標**でSVG描画
 - `getBounds`/`getSnapPoints`/`getSegments`/`getCircle` — 当たり判定・スナップ・拘束相手
-- `propertySchema` — プロパティパネル(`src/ui/PropertyPanel.tsx`)自動生成
+- `propertySchema` — プロパティパネル(`src/ui/PropertyPanel.tsx`)自動生成。スキーマで表せない配列・ボタン等は`PanelExtra`(プラグイン独自のパネル部品)を差し込む
 - `applyScale`/`getEndpoints`+`setFromEndpoints`/`applyRefs`/`moveLabel` — 操作の焼き込み
+- `getParts`+`movePart`(選択中の追加ドラッグハンドル) / `zoomToRect`(「グラフ範囲」ツールの受け口) — グラフ等の独自操作点
 - `capabilities`: `rotatable` / `scalable`('both'|'uniform'|'x'|'none') / `construction`(補助線化の可否, 線・円のみ)
+
+**グラフ**(`src/plugins/graph/`)は座標系+複数プロットの複合プラグイン。数式パーサ`exprParser.ts`(初等関数・暗黙乗算・全角正規化、コンパイル結果はモジュールキャッシュ)、座標変換・目盛り・サンプリング・最小二乗`graphMath.ts`(純粋・要テスト)、レイヤ描画`GraphLayers.tsx`、パネル`GraphPanel.tsx`に分割。表示範囲(xMin..yMax)はprops持ちで、原点ハンドル(`getParts`)ドラッグ=パン、「グラフ範囲」ツール(ドラッグ矩形)=ズーム、`defaultRange`へリセット。曲線はサイズ由来idの`clipPath`で箱内へクリップ(objectId非依存=書き出し安全)。
 
 ### 座標とtransformの規約（最重要）
 
@@ -43,7 +46,7 @@ npm test       # vitest run（全テスト）
    - `'parallel'`/`'perpendicular'` … 回転だけを基準線分と平行/垂直に保つ。`angleOffset`を基準角に加算(平行=0/180・垂直=±90を最小回転で選択; `parallelOffset`/`perpendicularOffset`)。両者は回転成分を奪い合う=排他→`findRotationLock`で共通判定(回転ハンドル/回転角入力の非表示など)。
    - `'coincident'` … 局所アンカー`localAnchor`を基準点に一致させ位置追従。基準は対象スナップ点(`kind:'point'`+`pointIndex`; `localSnapPoints`で並びをCanvasStageと共有)、または**対象なしの自由座標`worldAnchor`**(`targetId:''`)。`resolveCoincidentAnchor`が両者を解決。
 
-回転(平行/垂直)と位置(一致)は別成分なので同一オブジェクトで合成可。拘束作成は**非プラグインの操作ツール**(`src/canvas/tools.tsx`の`OPERATION_TOOLS`: 接線/平行/垂直/一致。「拘束」欄に並び`activeTool`にidが入りCanvasStageが分岐)。マーカーは`ConstraintMarkers.tsx`が常時描画(平行=`>>`シェブロン、垂直=直角L字、一致=接続点リング)。`data-constraint`/`-role`クリック→`constraintStore.focused`→解除ピル or Deleteでそのロールのみ除去。`PropertyPanel`の「追従を解除」は全refsクリア。
+回転(平行/垂直)と位置(一致)は別成分なので同一オブジェクトで合成可。拘束作成は**非プラグインの操作ツール**(`src/canvas/tools.tsx`の`OPERATION_TOOLS`: トリム/グラフ範囲=「編集」、接線/平行/垂直/一致=「拘束」。カテゴリ別に並び`activeTool`にidが入りCanvasStageが分岐)。マーカーは`ConstraintMarkers.tsx`が常時描画(平行=`>>`シェブロン、垂直=直角L字、一致=接続点リング)。`data-constraint`/`-role`クリック→`constraintStore.focused`→解除ピル or Deleteでそのロールのみ除去。`PropertyPanel`の「追従を解除」は全refsクリア。
 
 拘束オブジェクトの**端点ドラッグ**(CanvasStage `endpointPin`): 一致は基準点を、平行/垂直は反対端を固定して長さのみ変える(向きは基準にロック)。一致点(ピンクのリング)自体もドラッグで移動可(`snapAnchorPoint`でスナップ点/辺/円へ再接続、離すと自由座標)。
 
