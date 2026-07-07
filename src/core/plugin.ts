@@ -120,6 +120,15 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
    */
   PanelExtra?: ComponentType<{ objectId: string; props: P }>;
   /**
+   * オブジェクトのダブルクリック/プロパティパネルの編集ボタンで画面中央に開く
+   * 大型エディタモーダル(任意)。本体は「これを持つか」だけを見て開閉し、
+   * 中身には関知しない。モーダル側が documentStore の
+   * setObjectTransient / commitObject で編集を反映する。
+   */
+  EditorModal?: ComponentType<{ objectId: string; onClose(): void }>;
+  /** クリック配置の直後に EditorModal を自動で開く(文章系オブジェクト向け) */
+  openEditorOnCreate?: boolean;
+  /**
    * ローカル座標系でのSVG描画。
    * ラベル付きオブジェクトは transform(回転の打ち消し用)や objectId
    * (ラベルドラッグの当たり判定用)、interactive(操作可否)を受け取る。

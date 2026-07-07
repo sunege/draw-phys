@@ -5,6 +5,7 @@ import { arcPlugin } from './basic/arc';
 import { arrowPlugin } from './basic/arrow';
 import { circlePlugin } from './basic/circle';
 import { latexPlugin } from './basic/latex';
+import { latexDocPlugin } from './basic/latexDoc';
 import { linePlugin } from './basic/line';
 import { pointPlugin } from './basic/point';
 import { rectPlugin } from './basic/rect';
@@ -29,6 +30,7 @@ export function registerStandardPlugins(): void {
   pluginRegistry.register(arrowPlugin);
   pluginRegistry.register(textPlugin);
   pluginRegistry.register(latexPlugin);
+  pluginRegistry.register(latexDocPlugin);
   pluginRegistry.register(blockPlugin);
   pluginRegistry.register(springPlugin);
   pluginRegistry.register(vectorPlugin);

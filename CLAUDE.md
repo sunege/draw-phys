@@ -26,6 +26,7 @@ npm test       # vitest run（全テスト）
 - `applyScale`/`getEndpoints`+`setFromEndpoints`/`applyRefs`/`moveLabel` — 操作の焼き込み
 - `getParts`+`movePart`(選択中の追加ドラッグハンドル) / `zoomToRect`(「グラフ範囲」ツールの受け口) — グラフ等の独自操作点
 - `capabilities`: `rotatable` / `scalable`('both'|'uniform'|'x'|'none') / `construction`(補助線化の可否, 線・円のみ)
+- `EditorModal`(+`openEditorOnCreate`) — ダブルクリック/パネルの編集ボタンで開く大型エディタモーダル。開閉は`editorModalStore`+`EditorModalHost`、汎用実装は`SourceEditorModal`(textarea+ライブプレビュー, transient→commit)。latex/latexDocが使用。**latexDoc**(LaTeX文章)は地の文HTML+`$...$`/`\begin{align}`等のKaTeX混在を`latexDocParser.ts`(純粋)で分割し、枠幅で折り返し・上端固定で下方向にのみ伸長(`docBounds`)、`applyScale`はフォント不変で枠のみ変更
 
 **グラフ**(`src/plugins/graph/`)は座標系+複数プロットの複合プラグイン。数式パーサ`exprParser.ts`(初等関数・暗黙乗算・全角正規化、コンパイル結果はモジュールキャッシュ)、座標変換・目盛り・サンプリング・最小二乗`graphMath.ts`(純粋・要テスト)、レイヤ描画`GraphLayers.tsx`、パネル`GraphPanel.tsx`に分割。表示範囲(xMin..yMax)はprops持ちで、原点ハンドル(`getParts`)ドラッグ=パン、「グラフ範囲」ツール(ドラッグ矩形)=ズーム、`defaultRange`へリセット。曲線はサイズ由来idの`clipPath`で箱内へクリップ(objectId非依存=書き出し安全)。
 

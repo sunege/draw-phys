@@ -23,11 +23,13 @@ import type { ObjectRef, Point, Rect, Transform } from '../core/types';
 import { copySelection, duplicateSelection, pasteClipboard } from '../state/clipboard';
 import { useConstraintStore } from '../state/constraintStore';
 import { expandWithGroups, useDocumentStore } from '../state/documentStore';
+import { useEditorModalStore } from '../state/editorModalStore';
 import { useHintStore } from '../state/hintStore';
 import { useToolStore } from '../state/toolStore';
 import { useViewportStore } from '../state/viewportStore';
 import { ConstraintMarkers } from './ConstraintMarkers';
 import { screenToWorld } from './coords';
+import { isDoubleClick, type ClickRecord } from './doubleClick';
 import { GridLayer } from './GridLayer';
 import { ObjectsLayer } from './ObjectsLayer';
 import { SelectionOverlay } from './SelectionOverlay';
@@ -58,7 +60,14 @@ import styles from './CanvasStage.module.css';
 
 type DragState =
   | { mode: 'pan'; lastX: number; lastY: number }
-  | { mode: 'move'; startWorld: Point; before: Record<string, Transform>; moved: boolean }
+  | {
+      mode: 'move';
+      /** クリックしたオブジェクトのID(ダブルクリック判定に使う) */
+      hitId: string;
+      startWorld: Point;
+      before: Record<string, Transform>;
+      moved: boolean;
+    }
   | {
       mode: 'scale';
       id: string;
@@ -275,6 +284,8 @@ export function CanvasStage() {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
+  /** 直前の「移動していないクリック」の記録(ダブルクリック判定用) */
+  const lastClickRef = useRef<ClickRecord | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [panning, setPanning] = useState(false);
@@ -738,8 +749,13 @@ export function CanvasStage() {
         dragRef.current = { mode: 'place-line', plugin, start: position };
         setPreview({ plugin, ...plugin.createFromDrag(position, position) });
       } else {
-        doc.addObject(createSceneObject(plugin, position, doc.nextZIndex));
+        const created = createSceneObject(plugin, position, doc.nextZIndex);
+        doc.addObject(created);
         useToolStore.getState().setActiveTool('select');
+        // 文章系オブジェクトは配置直後に大型エディタを開く
+        if (plugin.EditorModal && plugin.openEditorOnCreate) {
+          useEditorModalStore.getState().open(created.id);
+        }
       }
       return;
     }
@@ -918,7 +934,7 @@ export function CanvasStage() {
         before[cref!.targetId] = target.transform;
       }
     }
-    dragRef.current = { mode: 'move', startWorld: world, before, moved: false };
+    dragRef.current = { mode: 'move', hitId: hitObj.id, startWorld: world, before, moved: false };
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -1215,6 +1231,16 @@ export function CanvasStage() {
 
     if (drag.mode === 'move' && drag.moved) {
       doc.commitTransforms(drag.before);
+    } else if (drag.mode === 'move') {
+      // 移動なしのクリック: 同一オブジェクトへの2連続クリックで大型エディタを開く
+      const cur: ClickRecord = { id: drag.hitId, time: e.timeStamp, x: e.clientX, y: e.clientY };
+      if (isDoubleClick(lastClickRef.current, cur)) {
+        lastClickRef.current = null;
+        const plugin = pluginRegistry.get(doc.objects[drag.hitId]?.pluginId ?? '');
+        if (plugin?.EditorModal) useEditorModalStore.getState().open(drag.hitId);
+      } else {
+        lastClickRef.current = cur;
+      }
     } else if (drag.mode === 'rotate' && drag.moved) {
       doc.commitTransforms({ [drag.id]: drag.before });
     } else if (drag.mode === 'scale' && drag.moved) {

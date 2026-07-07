@@ -6,6 +6,7 @@ import { pluginRegistry } from '../core/registry';
 import { useAutosave } from '../persistence/useAutosave';
 import { useDocumentStore } from '../state/documentStore';
 import { useWorkspaceStore } from '../state/workspaceStore';
+import { EditorModalHost } from '../ui/EditorModalHost';
 import { HintOverlay } from '../ui/HintOverlay';
 import { MenuBar } from '../ui/MenuBar';
 import { PropertyPanel } from '../ui/PropertyPanel';
@@ -58,6 +59,7 @@ export function EditorPage() {
         <PropertyPanel />
       </div>
       <WorkspacePanel />
+      <EditorModalHost />
     </div>
   );
 }

@@ -2,6 +2,11 @@ import katex from 'katex';
 import type { PhysicsObjectPlugin } from '../../core/plugin';
 import type { Rect } from '../../core/types';
 import { areKatexFontsReady, registerKatexMeasureCache } from './katexFonts';
+import {
+  EditorOpenButton,
+  SourceEditorModal,
+  type SourceEditorConfig,
+} from './SourceEditorModal';
 import 'katex/dist/katex.min.css';
 
 interface LatexProps {
@@ -91,6 +96,23 @@ function measureFormula(formula: string, fontSize: number): { width: number; hei
   return size;
 }
 
+/** 大型エディタ(SourceEditorModal)の設定。プレビューは数式のみ(折り返しなし) */
+const editorConfig: SourceEditorConfig = {
+  title: 'LaTeX数式の編集',
+  hint: 'KaTeXの数式コマンドをそのまま入力する($で囲む必要はない)。例: \\vec{F} = m\\vec{a}',
+  getDraft: (props) => String(props.formula ?? ''),
+  applyDraft: (props, draft) => ({ ...props, formula: draft }),
+  renderPreview: (draft, props) => ({
+    html: renderHtml(draft),
+    style: {
+      fontSize: `${Number(props.fontSize) || 24}px`,
+      color: String(props.color ?? '#333333'),
+      lineHeight: 1,
+      whiteSpace: 'nowrap',
+    },
+  }),
+};
+
 export const latexPlugin: PhysicsObjectPlugin<LatexProps> = {
   id: 'core.latex',
   version: 1,
@@ -165,4 +187,8 @@ export const latexPlugin: PhysicsObjectPlugin<LatexProps> = {
   capabilities: { rotatable: true, scalable: 'uniform' },
   placement: 'click',
   exportStyles: buildKatexExportCss,
+  PanelExtra: ({ objectId }) => <EditorOpenButton objectId={objectId} />,
+  EditorModal: ({ objectId, onClose }) => (
+    <SourceEditorModal objectId={objectId} onClose={onClose} config={editorConfig} />
+  ),
 };

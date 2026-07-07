@@ -1,0 +1,135 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(17, 24, 39, 0.4);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(90vw, 960px);
+  height: 80vh;
+  padding: 16px 20px;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  color: #111827;
+}
+
+.panes {
+  display: flex;
+  flex: 1;
+  gap: 12px;
+  min-height: 0;
+}
+
+.editorPane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.editorPane textarea {
+  flex: 1;
+  padding: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #1f2937;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  resize: none;
+}
+
+.editorPane textarea:focus {
+  border-color: #2b7de9;
+  outline: none;
+}
+
+.hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.previewPane {
+  flex: 1;
+  min-width: 0;
+  padding: 10px;
+  overflow: auto;
+  background: #fafafa;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.previewPane > div {
+  background: #ffffff;
+}
+
+.buttons {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.shortcutNote {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.buttonsRight {
+  display: flex;
+  gap: 8px;
+}
+
+.buttons button {
+  padding: 5px 12px;
+  font-size: 12px;
+  color: #374151;
+  cursor: pointer;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+}
+
+.buttons button:hover {
+  background: #e5e7eb;
+}
+
+.primary {
+  color: #ffffff !important;
+  background: #2b7de9 !important;
+  border-color: #2b7de9 !important;
+}
+
+.primary:hover {
+  background: #1d6fdc !important;
+}
+
+.editButton {
+  width: 100%;
+  padding: 5px 10px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #374151;
+  cursor: pointer;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+}
+
+.editButton:hover {
+  background: #e5e7eb;
+}
