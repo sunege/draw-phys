@@ -3,9 +3,12 @@ import {
   bracketCyclic,
   bracketLinear,
   circleCircle,
+  ellipseParamAngle,
   pointOnArc,
+  pointOnEllipticalArc,
   projectSegmentT,
   segmentCircle,
+  segmentEllipse,
   segmentSegment,
 } from '../trimMath';
 
@@ -50,6 +53,40 @@ describe('trimMath 円弧判定', () => {
     // start=0, end=90 の円弧(半径10, 中心原点, 回転0)
     expect(pointOnArc({ x: 0, y: 0 }, 0, 0, 90, { x: 7, y: 7 })).toBe(true); // 45°付近
     expect(pointOnArc({ x: 0, y: 0 }, 0, 0, 90, { x: -7, y: 7 })).toBe(false); // 135°
+  });
+});
+
+describe('trimMath 楕円', () => {
+  // rx=2, ry=1, rotation=90° の楕円上、媒介変数角度30°の点は
+  // 回転前ローカル(1.732,0.5) → 90°回転でワールド(-0.5, 1.732) になる。
+  // 「回転を先に打ち消してから軸ごとに割る」正しい順序でないと角度がずれる組み合わせ。
+  it('ellipseParamAngle: 回転+非対称半径でも媒介変数角度を正しく復元する', () => {
+    const t = ellipseParamAngle({ x: 0, y: 0 }, 2, 1, 90, { x: -0.5, y: Math.sqrt(3) });
+    expect(t).toBeCloseTo(30, 1);
+  });
+
+  it('segmentEllipse: 回転90°の楕円を長軸方向へ貫く線は長軸両端で交わる', () => {
+    // t=0→ワールド(0,2)、t=180→ワールド(0,-2)(rotation=90°で長軸rx=2がワールドy軸に一致)
+    const pts = segmentEllipse({ x: 0, y: -10 }, { x: 0, y: 10 }, { x: 0, y: 0 }, 2, 1, 90);
+    expect(pts).toHaveLength(2);
+    const ys = pts.map((p) => p.y).sort((a, b) => a - b);
+    expect(ys[0]).toBeCloseTo(-2);
+    expect(ys[1]).toBeCloseTo(2);
+    pts.forEach((p) => expect(p.x).toBeCloseTo(0));
+  });
+
+  it('segmentEllipse: 軸並行(rotation=0)でも従来のsegmentCircle相当に交わる', () => {
+    const pts = segmentEllipse({ x: -100, y: 0 }, { x: 100, y: 0 }, { x: 0, y: 0 }, 40, 20, 0);
+    expect(pts).toHaveLength(2);
+    const xs = pts.map((p) => p.x).sort((a, b) => a - b);
+    expect(xs[0]).toBeCloseTo(-40);
+    expect(xs[1]).toBeCloseTo(40);
+  });
+
+  it('pointOnEllipticalArc: 回転+非対称半径の範囲内/範囲外を正しく判定する', () => {
+    // start=0,end=90(媒介変数角度)の楕円弧。t=30°の点(範囲内)/t=180°の点(範囲外)
+    expect(pointOnEllipticalArc({ x: 0, y: 0 }, 2, 1, 90, 0, 90, { x: -0.5, y: Math.sqrt(3) })).toBe(true);
+    expect(pointOnEllipticalArc({ x: 0, y: 0 }, 2, 1, 90, 0, 90, { x: 0, y: -2 })).toBe(false);
   });
 });
 

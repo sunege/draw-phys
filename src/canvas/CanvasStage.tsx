@@ -50,10 +50,12 @@ import {
   TRIM_TOOL,
 } from './tools';
 import { computeTrimKeeps } from './trim';
+import { ellipseParamAngle } from './trimMath';
 import {
   computeRotationAboutPivot,
   computeScaleDrag,
   computeScaleToProps,
+  projectOntoFixedRadius,
   type HandleDir,
 } from './transformMath';
 import styles from './CanvasStage.module.css';
@@ -221,6 +223,17 @@ function circleAngleAt(obj: SceneObject, world: Point): number | null {
   return t;
 }
 
+/** 楕円/楕円弧オブジェクト上で、ワールド点に対応する媒介変数角度(度)を返す。楕円でなければnull */
+function ellipseAngleAt(obj: SceneObject, world: Point): number | null {
+  const plugin = pluginRegistry.get(obj.pluginId);
+  const e = plugin?.getEllipse?.(obj.props);
+  if (!e) return null;
+  const center = localToWorld(e.center, obj.transform);
+  const t = ellipseParamAngle(center, e.radiusX, e.radiusY, obj.transform.rotation, world);
+  if (e.startAngle != null && e.endAngle != null) return clampToArc(t, e.startAngle, e.endAngle);
+  return t;
+}
+
 /** 指定ロールの拘束だけを外す(オブジェクト本体・他の拘束は残す) */
 function removeConstraint(id: string, role: string): void {
   const doc = useDocumentStore.getState();
@@ -266,6 +279,8 @@ function pickEdge(obj: SceneObject, world: Point): EdgePick | null {
   if (seg) return { kind: 'segment', targetId: seg.targetId, segIndex: seg.segIndex };
   const t = circleAngleAt(obj, world);
   if (t != null) return { kind: 'circle', targetId: obj.id, t };
+  const te = ellipseAngleAt(obj, world);
+  if (te != null) return { kind: 'ellipse', targetId: obj.id, t: te };
   return null;
 }
 
@@ -1020,6 +1035,7 @@ export function CanvasStage() {
     ) {
       // 一致/平行拘束された線: 固定点を保ちドラッグ端だけ動かして長さ(平行なら向きも固定)を再構築
       const { coincidentBase, parallelLocked, beforeRefs } = drag.endpointPin;
+      const lengthLocked = !!drag.plugin.isLengthLocked?.(drag.beforeProps);
       const snapped = snapEndpoint({
         point: world,
         objects: doc.objects,
@@ -1028,6 +1044,7 @@ export function CanvasStage() {
         snapEnabled,
         gridSize,
         threshold: 8 / zoom,
+        gridEnabled: !lengthLocked,
       });
       const worldEps = drag.plugin.getEndpoints(drag.beforeProps).map((p) => localToWorld(p, drag.before));
       const co = beforeRefs.find((r) => r.role === 'coincident');
@@ -1048,6 +1065,11 @@ export function CanvasStage() {
         const proj = (target.x - F.x) * d.x + (target.y - F.y) * d.y;
         const len = centerAnchor ? proj : Math.max(proj, 1);
         target = { x: F.x + len * d.x, y: F.y + len * d.y };
+      }
+      if (lengthLocked) {
+        // 長さ固定: 基準点Fからの距離を元の全長(中点固定なら半分)へ強制し、向きは維持する
+        const total = distance(worldEps[0], worldEps[1]);
+        target = projectOntoFixedRadius(F, centerAnchor ? total / 2 : total, target);
       }
       let a: Point;
       let b: Point;
@@ -1072,6 +1094,38 @@ export function CanvasStage() {
         props: res.props,
         ...(refs ? { refs } : {}),
       });
+      setGuides({ marker: snapped.marker });
+      drag.moved = true;
+      return;
+    }
+
+    if (
+      drag.mode === 'endpoint' &&
+      !drag.endpointPin &&
+      drag.plugin.getEndpoints &&
+      drag.plugin.setFromEndpoints &&
+      drag.plugin.isLengthLocked?.(drag.beforeProps)
+    ) {
+      // 長さ固定: 反対端を中心に固定半径の円上でのみ動く(グリッドスナップは無効、他オブジェクトへは有効)
+      const eps = drag.plugin.getEndpoints(drag.beforeProps);
+      const worldEps = eps.map((p) => localToWorld(p, drag.before));
+      const anchor = worldEps[1 - drag.end];
+      const length = distance(worldEps[0], worldEps[1]);
+      const snapped = snapEndpoint({
+        point: world,
+        objects: doc.objects,
+        registry: pluginRegistry,
+        excludeIds: new Set([drag.id]),
+        snapEnabled,
+        gridSize,
+        threshold: 8 / zoom,
+        gridEnabled: false,
+      });
+      const target = projectOntoFixedRadius(anchor, length, snapped.point);
+      const a = drag.end === 0 ? target : anchor;
+      const b = drag.end === 1 ? target : anchor;
+      const res = drag.plugin.setFromEndpoints(drag.beforeProps, a, b);
+      doc.setObjectTransient(drag.id, { transform: res.transform, props: res.props });
       setGuides({ marker: snapped.marker });
       drag.moved = true;
       return;

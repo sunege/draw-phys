@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import katex from 'katex';
 import type { Rect } from '../../core/types';
+import { resolveFontFamily } from './fontFamilies';
 import { normalizeFormula } from './latex';
 
 /**
@@ -215,16 +216,10 @@ export function docBounds(width: number, height: number, contentHeight: number):
   return { x: -width / 2, y: -height / 2, width, height: Math.max(height, contentHeight) };
 }
 
-/**
- * 書き出しSVGはページCSSを持たない<img>内で描画されるため、
- * 本文フォントは body(src/index.css) と同じスタックをインラインで明示する。
- */
-export const DOC_FONT_FAMILY =
-  "system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', 'Yu Gothic UI', sans-serif";
-
 export interface DocStyleOpts {
   width: number;
   fontSize: number;
+  fontFamily: string;
   lineHeight: number;
   color: string;
   align: 'left' | 'center' | 'right';
@@ -242,7 +237,7 @@ export function docContainerStyle(opts: DocStyleOpts): CSSProperties {
     lineHeight: String(opts.lineHeight),
     color: opts.color,
     textAlign: opts.align,
-    fontFamily: DOC_FONT_FAMILY,
+    fontFamily: resolveFontFamily(opts.fontFamily),
     whiteSpace: 'normal',
     overflowWrap: 'break-word',
     // align等の数式番号はKaTeXがCSSカウンタでページ全体に振るため、

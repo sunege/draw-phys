@@ -26,7 +26,7 @@ function pointAt(r: number, deg: number): Point {
 }
 
 /** 開始角→終了角(増加方向)の掃引角(度)。0〜360に正規化し、0はfull扱い */
-function sweepDelta(startAngle: number, endAngle: number): number {
+export function sweepDelta(startAngle: number, endAngle: number): number {
   let delta = ((endAngle - startAngle) % 360 + 360) % 360;
   if (delta === 0) delta = 360;
   return delta;

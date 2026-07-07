@@ -49,3 +49,10 @@ describe('line getAnchorPoint', () => {
     expect(linePlugin.getAnchorPoint!({ ...baseProps, tangentOffset: 12 })).toEqual({ x: 12, y: 0 });
   });
 });
+
+describe('line isLengthLocked', () => {
+  it('既定はfalse、lengthLocked:trueでtrueを返す', () => {
+    expect(linePlugin.isLengthLocked!(baseProps)).toBe(false);
+    expect(linePlugin.isLengthLocked!({ ...baseProps, lengthLocked: true })).toBe(true);
+  });
+});

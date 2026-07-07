@@ -1,4 +1,4 @@
-import { angleOfVector, normalizeAngle360 } from '../core/geometry';
+import { angleOfVector, normalizeAngle360, rotateVec } from '../core/geometry';
 import type { Point } from '../core/types';
 
 const EPS = 1e-7;
@@ -78,6 +78,62 @@ export function pointOnArc(
   const rel = normalizeAngle360(world - rotation - start);
   const sweep = normalizeAngle360(end - start) || 360;
   return rel <= sweep + 1e-3 || rel >= 360 - 1e-3;
+}
+
+/**
+ * ワールド点pの、中心center・半径radiusX/radiusY・回転rotationの楕円に対する媒介変数角度(度)。
+ * P(t)=(radiusX·cos t, radiusY·sin t) の t を返す。回転を先に打ち消してから軸ごとに
+ * radiusX/radiusYで割らないと角度がずれる(円と違い、回転と非一様スケールの順序が重要)。
+ */
+export function ellipseParamAngle(
+  center: Point,
+  radiusX: number,
+  radiusY: number,
+  rotation: number,
+  p: Point,
+): number {
+  const local = rotateVec({ x: p.x - center.x, y: p.y - center.y }, -rotation);
+  return angleOfVector({ x: local.x / radiusX, y: local.y / radiusY });
+}
+
+/** 点pが、中心center・半径radiusX/radiusY・world回転rotationの楕円弧(ローカル start..end 度)上にあるか */
+export function pointOnEllipticalArc(
+  center: Point,
+  radiusX: number,
+  radiusY: number,
+  rotation: number,
+  start: number,
+  end: number,
+  p: Point,
+): boolean {
+  const t = ellipseParamAngle(center, radiusX, radiusY, rotation, p);
+  const rel = normalizeAngle360(t - start);
+  const sweep = normalizeAngle360(end - start) || 360;
+  return rel <= sweep + 1e-3 || rel >= 360 - 1e-3;
+}
+
+/**
+ * 線分ab × 楕円(center, radiusX, radiusY, rotation) の交点(線分範囲内、0〜2点)。
+ * 回転を打ち消しx/radiusX・y/radiusYで割った「u空間」では楕円が単位円になるため、
+ * 既存の segmentCircle をそのまま再利用してワールド座標へ戻す(近似ではなく厳密)。
+ */
+export function segmentEllipse(
+  a: Point,
+  b: Point,
+  center: Point,
+  radiusX: number,
+  radiusY: number,
+  rotation: number,
+): Point[] {
+  const toU = (p: Point): Point => {
+    const local = rotateVec({ x: p.x - center.x, y: p.y - center.y }, -rotation);
+    return { x: local.x / radiusX, y: local.y / radiusY };
+  };
+  const fromU = (u: Point): Point => {
+    const local = rotateVec({ x: u.x * radiusX, y: u.y * radiusY }, rotation);
+    return { x: local.x + center.x, y: local.y + center.y };
+  };
+  return segmentCircle(toU(a), toU(b), { x: 0, y: 0 }, 1).map(fromU);
 }
 
 /** 昇順の境界(定義域端を含む)から、click を挟む隣接ペア[lo,hi]を返す。無ければnull */

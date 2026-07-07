@@ -61,8 +61,11 @@ export function snapEndpoint(params: {
   snapEnabled: boolean;
   gridSize: number;
   threshold: number;
+  /** falseならグリッドへのスナップを無効化し、他オブジェクトへのスナップのみ行う(既定true) */
+  gridEnabled?: boolean;
 }): EndpointSnapResult {
-  const { point, objects, registry, excludeIds, snapEnabled, gridSize, threshold } = params;
+  const { point, objects, registry, excludeIds, snapEnabled, gridSize, threshold, gridEnabled = true } =
+    params;
   if (!snapEnabled) return { point: { ...point } };
 
   // クロージャからの代入で外側変数がnarrowされないよう、ホルダ経由で保持する
@@ -103,6 +106,12 @@ export function snapEndpoint(params: {
     }
     // 通常のスナップ点(端点・中心など。attachなし)
     for (const p of worldSnapPoints(objects, registry, id, obj.transform)) consider(p);
+  }
+
+  if (!gridEnabled) {
+    const { best } = holder;
+    if (best) return { point: best.p, marker: best.p, attach: best.attach };
+    return { point: { ...point } };
   }
 
   const gridPt = snapPoint(point, gridSize);

@@ -24,7 +24,7 @@ registerKatexMeasureCache(() => measureCache.clear());
 /** 幅 width で折り返したときのコンテンツ高(px, 切り上げ整数)を返す */
 export function measureDocHeight(opts: DocMeasureOpts): number {
   // source は | を含み得るので必ず末尾に置く
-  const key = `${opts.width}|${opts.fontSize}|${opts.lineHeight}|${opts.align}|${opts.source}`;
+  const key = `${opts.width}|${opts.fontSize}|${opts.fontFamily}|${opts.lineHeight}|${opts.align}|${opts.source}`;
   const cached = measureCache.get(key);
   if (cached !== undefined) return cached;
 

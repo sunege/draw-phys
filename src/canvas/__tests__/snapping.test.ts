@@ -123,6 +123,19 @@ describe('snapEndpoint', () => {
     expect(r.point).toEqual({ x: 320, y: 320 }); // 40グリッド
     expect(r.marker).toBeUndefined();
   });
+
+  it('gridEnabled:false では線分は吸着するがグリッドへは吸着しない', () => {
+    const { objects } = segObjects();
+    // 線分の近くではこれまで通り吸着する
+    const onSeg = snapEndpoint({ ...base, objects, point: { x: 100, y: 103 }, gridEnabled: false });
+    expect(onSeg.point.x).toBeCloseTo(100);
+    expect(onSeg.point.y).toBeCloseTo(100);
+    expect(onSeg.marker).toBeDefined();
+    // 何も近くになければグリッドへ丸めず、生の点をそのまま返す
+    const away = snapEndpoint({ ...base, objects, point: { x: 300, y: 300 }, gridEnabled: false });
+    expect(away.point).toEqual({ x: 300, y: 300 });
+    expect(away.marker).toBeUndefined();
+  });
 });
 
 describe('snapAnchorPoint', () => {

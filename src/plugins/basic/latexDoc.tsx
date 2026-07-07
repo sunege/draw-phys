@@ -1,4 +1,5 @@
 import type { PhysicsObjectPlugin } from '../../core/plugin';
+import { DEFAULT_FONT_FAMILY, FONT_FAMILY_OPTIONS } from './fontFamilies';
 import { buildKatexExportCss } from './latex';
 import { measureDocHeight } from './latexDocMeasure';
 import { docBounds, docContainerStyle, renderDocHtml } from './latexDocParser';
@@ -22,6 +23,7 @@ export interface LatexDocProps {
   /** 枠の最小高さ。内容が超えると下方向にのみ伸びる */
   height: number;
   fontSize: number;
+  fontFamily: string;
   color: string;
   /** 行間(倍率) */
   lineHeight: number;
@@ -36,6 +38,7 @@ function contentHeight(props: LatexDocProps): number {
     source: props.source,
     width: props.width,
     fontSize: props.fontSize,
+    fontFamily: props.fontFamily,
     lineHeight: props.lineHeight,
     align: props.align,
   });
@@ -84,6 +87,7 @@ export const latexDocPlugin: PhysicsObjectPlugin<LatexDocProps> = {
     width: 280,
     height: 80,
     fontSize: 18,
+    fontFamily: DEFAULT_FONT_FAMILY,
     color: '#333333',
     lineHeight: 1.6,
     align: 'left',
@@ -93,6 +97,7 @@ export const latexDocPlugin: PhysicsObjectPlugin<LatexDocProps> = {
   propertySchema: [
     { key: 'source', label: '内容', type: 'multiline' },
     { key: 'fontSize', label: 'サイズ', type: 'number', min: 6, step: 2 },
+    { key: 'fontFamily', label: 'フォント', type: 'select', options: [...FONT_FAMILY_OPTIONS] },
     { key: 'width', label: '枠の幅', type: 'number', min: MIN_WIDTH, step: 10 },
     { key: 'height', label: '枠の高さ', type: 'number', min: MIN_HEIGHT, step: 10 },
     { key: 'lineHeight', label: '行間', type: 'number', min: 1, max: 3, step: 0.1 },

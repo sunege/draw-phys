@@ -29,6 +29,21 @@ export interface CircleGeometry {
   endAngle?: number;
 }
 
+/**
+ * 楕円・楕円弧の幾何情報(ローカル座標、媒介変数角度)。
+ * トリム・作図補助線(construction)専用。拘束(接線)・スナップ・長さマークの
+ * 半径/直径測定には使わない(それらは getCircle=スカラー半径のみを見る)。
+ * startAngle/endAngle は P(t)=(radiusX·cos t, radiusY·sin t) の媒介変数角度であり、
+ * radiusX≠radiusY のとき中心から見た真の幾何角とは一致しない点に注意。
+ */
+export interface EllipseGeometry {
+  center: Point;
+  radiusX: number;
+  radiusY: number;
+  startAngle?: number;
+  endAngle?: number;
+}
+
 /** 拘束ソルバが依存側プラグインへ渡す、解決済みアンカー(すべてワールド座標) */
 export interface ResolvedRef {
   /** プラグイン定義のスロット名 */
@@ -55,7 +70,8 @@ export interface SegmentPick {
 /** 配置中にクリックしたオブジェクトのエッジ(線分)または円周の情報 */
 export type EdgePick =
   | { kind: 'segment'; targetId: string; segIndex: number }
-  | { kind: 'circle'; targetId: string; /** クリック点のローカル角度(度) */ t: number };
+  | { kind: 'circle'; targetId: string; /** クリック点のローカル角度(度) */ t: number }
+  | { kind: 'ellipse'; targetId: string; /** クリック点のローカル媒介変数角度(度) */ t: number };
 
 /**
  * トリム(部分削除)後に「残す1区間」。本体(trim.ts)が交点計算で算出しプラグインへ渡す。
@@ -155,6 +171,10 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
    */
   getCircle?(props: P): CircleGeometry | null;
   /**
+   * ローカル座標での楕円/楕円弧の幾何情報。トリム・補助線描画専用(getCircleとは独立)。
+   */
+  getEllipse?(props: P): EllipseGeometry | null;
+  /**
    * 拘束ソルバが、参照先(refs)の現在位置から解決したアンカーを渡す。
    * 依存側プラグイン(角度マーク・長さマーク・接線接続された線)が、
    * これらから自分の transform / props を再構築する。
@@ -217,6 +237,12 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
    * getEndpoints を定義する場合は必須。
    */
   setFromEndpoints?(props: P, a: Point, b: Point): EndpointEditResult<P>;
+  /**
+   * 長さ固定が有効かどうか(線分系オブジェクト用)。trueを返すと端点ドラッグ時に
+   * 長さを保ったまま角度のみ変える特殊編集になり、その端点はグリッドスナップが無効化される
+   * (他オブジェクトへのスナップは有効のまま)。
+   */
+  isLengthLocked?(props: P): boolean;
   /** 旧バージョンのpropsを現行スキーマへ移行する */
   migrate?(fromVersion: number, props: unknown): P;
   capabilities?: PluginCapabilities;

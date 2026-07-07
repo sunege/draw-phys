@@ -20,6 +20,7 @@ export function ConstructionView({
   const dash = `${strokeWidth * 3 + 3} ${strokeWidth * 2 + 2}`;
   const hit = Math.max(strokeWidth, 12);
   const circle = plugin.getCircle?.(props);
+  const ellipse = plugin.getEllipse?.(props);
   const segments = plugin.getSegments?.(props);
 
   return (
@@ -40,6 +41,30 @@ export function ConstructionView({
             cx={circle.center.x}
             cy={circle.center.y}
             r={circle.radius}
+            fill="none"
+            stroke="transparent"
+            strokeWidth={hit}
+          />
+        </>
+      )}
+      {ellipse && (
+        <>
+          <ellipse
+            cx={ellipse.center.x}
+            cy={ellipse.center.y}
+            rx={ellipse.radiusX}
+            ry={ellipse.radiusY}
+            fill="none"
+            stroke={CONSTRUCTION_COLOR}
+            strokeWidth={strokeWidth}
+            strokeDasharray={dash}
+          />
+          {/* 当たり判定用の透明な太い輪郭 */}
+          <ellipse
+            cx={ellipse.center.x}
+            cy={ellipse.center.y}
+            rx={ellipse.radiusX}
+            ry={ellipse.radiusY}
             fill="none"
             stroke="transparent"
             strokeWidth={hit}

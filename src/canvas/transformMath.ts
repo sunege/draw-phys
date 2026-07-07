@@ -185,3 +185,15 @@ export function computeRotationAboutPivot(
   const c = rotateVec({ x: before.x - pivot.x, y: before.y - pivot.y }, rotation - before.rotation);
   return { ...before, rotation, x: pivot.x + c.x, y: pivot.y + c.y };
 }
+
+/**
+ * 長さ固定の端点ドラッグ。anchor(反対端)からの距離を length に保ったまま、
+ * target 方向(スナップ結果を含む)へ向く点を返す(anchor中心・半径lengthの円上への射影)。
+ * target が anchor と一致する退化ケースは angle=0(水平)にフォールバックする。
+ */
+export function projectOntoFixedRadius(anchor: Point, length: number, target: Point): Point {
+  const dir = { x: target.x - anchor.x, y: target.y - anchor.y };
+  const d = Math.hypot(dir.x, dir.y);
+  const unit = d > 1e-9 ? { x: dir.x / d, y: dir.y / d } : { x: 1, y: 0 };
+  return { x: anchor.x + unit.x * length, y: anchor.y + unit.y * length };
+}

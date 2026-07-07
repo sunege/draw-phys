@@ -4,6 +4,8 @@ import { lengthMarkPlugin } from './annotation/lengthMark';
 import { arcPlugin } from './basic/arc';
 import { arrowPlugin } from './basic/arrow';
 import { circlePlugin } from './basic/circle';
+import { ellipsePlugin } from './basic/ellipse';
+import { ellipseArcPlugin } from './basic/ellipseArc';
 import { latexPlugin } from './basic/latex';
 import { latexDocPlugin } from './basic/latexDoc';
 import { linePlugin } from './basic/line';
@@ -27,6 +29,8 @@ export function registerStandardPlugins(): void {
   pluginRegistry.register(circlePlugin);
   pluginRegistry.register(rectPlugin);
   pluginRegistry.register(arcPlugin);
+  pluginRegistry.register(ellipsePlugin);
+  pluginRegistry.register(ellipseArcPlugin);
   pluginRegistry.register(arrowPlugin);
   pluginRegistry.register(textPlugin);
   pluginRegistry.register(latexPlugin);

@@ -238,7 +238,10 @@ export const lengthMarkPlugin: PhysicsObjectPlugin<LengthMarkProps> = {
         { role: 'p1', targetId: pick.targetId, kind: 'segment', segIndex: pick.segIndex, t: 1 },
       ];
     }
-    return [{ role: 'circle', targetId: pick.targetId, kind: 'circle', t: pick.t }];
+    if (pick.kind === 'circle') {
+      return [{ role: 'circle', targetId: pick.targetId, kind: 'circle', t: pick.t }];
+    }
+    return null; // 楕円は長さマーク未対応(壊れた参照を作らない)
   },
   exportStyles: buildKatexExportCss,
 };

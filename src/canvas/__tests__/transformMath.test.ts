@@ -8,6 +8,7 @@ import {
   computeScaleToProps,
   fromDisplayAngle,
   normalizeAngle,
+  projectOntoFixedRadius,
   toDisplayAngle,
 } from '../transformMath';
 
@@ -168,5 +169,26 @@ describe('角度の正規化と表示変換', () => {
     for (const deg of [0, 30, 45, -60, 120, -170]) {
       expect(fromDisplayAngle(toDisplayAngle(deg))).toBeCloseTo(deg);
     }
+  });
+});
+
+describe('projectOntoFixedRadius', () => {
+  it('targetの方向へ、anchorからlength離れた点を返す(長さは変わらない)', () => {
+    const p = projectOntoFixedRadius({ x: 0, y: 0 }, 100, { x: 50, y: 50 });
+    expect(Math.hypot(p.x, p.y)).toBeCloseTo(100);
+    expect(p.x).toBeCloseTo(p.y); // 方向は保たれる(45度)
+    expect(p.x).toBeGreaterThan(0);
+  });
+
+  it('targetがanchorより近くても遠くても距離は常にlengthになる', () => {
+    const near = projectOntoFixedRadius({ x: 10, y: 10 }, 40, { x: 12, y: 10 });
+    expect(Math.hypot(near.x - 10, near.y - 10)).toBeCloseTo(40);
+    const far = projectOntoFixedRadius({ x: 10, y: 10 }, 40, { x: 1000, y: 10 });
+    expect(Math.hypot(far.x - 10, far.y - 10)).toBeCloseTo(40);
+  });
+
+  it('targetがanchorと一致する退化ケースは水平(角度0)にフォールバックする', () => {
+    const p = projectOntoFixedRadius({ x: 5, y: 5 }, 30, { x: 5, y: 5 });
+    expect(p).toEqual({ x: 35, y: 5 });
   });
 });
