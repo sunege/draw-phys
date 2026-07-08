@@ -29,6 +29,11 @@ import { useToolStore } from '../state/toolStore';
 import { useViewportStore } from '../state/viewportStore';
 import { ConstraintMarkers } from './ConstraintMarkers';
 import { screenToWorld } from './coords';
+import {
+  dragHasFiles,
+  imageBlobsFromDataTransfer,
+  insertImagesFromBlobs,
+} from './insertImage';
 import { isDoubleClick, type ClickRecord } from './doubleClick';
 import { GridLayer } from './GridLayer';
 import { ObjectsLayer } from './ObjectsLayer';
@@ -178,6 +183,16 @@ function isEditableTarget(target: EventTarget | null): boolean {
 function rectsIntersect(a: Rect, b: Rect): boolean {
   return (
     a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+  );
+}
+
+/** outer が inner を完全に含むか(境界含む) */
+function rectContains(outer: Rect, inner: Rect): boolean {
+  return (
+    outer.x <= inner.x &&
+    outer.y <= inner.y &&
+    outer.x + outer.width >= inner.x + inner.width &&
+    outer.y + outer.height >= inner.y + inner.height
   );
 }
 
@@ -426,9 +441,8 @@ export function CanvasStage() {
       } else if (mod && key === 'c') {
         e.preventDefault();
         copySelection();
-      } else if (mod && key === 'v') {
-        e.preventDefault();
-        pasteClipboard();
+        // Ctrl+V の貼り付けは keydown ではなく paste イベントで処理する。
+        // クリップボード画像(clipboardData)は paste イベントでしか読めないため。
       } else if (mod && key === 'd') {
         e.preventDefault();
         duplicateSelection();
@@ -472,6 +486,32 @@ export function CanvasStage() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
+  }, []);
+
+  // クリップボード貼り付け(Ctrl+V)。画像があれば画像オブジェクトを、無ければ
+  // アプリ内クリップボード(コピーした図形)を貼る。画像はビュー中心に置く。
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (isEditableTarget(e.target)) return; // 入力欄への貼り付けは邪魔しない
+      const dt = e.clipboardData;
+      const blobs = dt ? imageBlobsFromDataTransfer(dt) : [];
+      if (blobs.length > 0) {
+        e.preventDefault();
+        const svg = svgRef.current;
+        const { pan, zoom } = useViewportStore.getState();
+        let center: Point = { x: 0, y: 0 };
+        if (svg) {
+          const rect = svg.getBoundingClientRect();
+          center = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2, svg, pan, zoom);
+        }
+        void insertImagesFromBlobs(blobs, center);
+        return;
+      }
+      e.preventDefault();
+      pasteClipboard();
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
   }, []);
 
   // ツールを切り替えたら進行中の線分ピック・接線対象・平行/一致対象を破棄する
@@ -1410,7 +1450,13 @@ export function CanvasStage() {
           .filter((obj) => obj.visible && !obj.locked)
           .filter((obj) => {
             const bounds = objectWorldBounds(obj);
-            return bounds !== null && rectsIntersect(bounds, rect);
+            if (bounds === null) return false;
+            // 用紙枠(背景的な大枠)は内部でのドラッグで巻き込まないよう、
+            // マーキーが枠全体を包み込んだときだけ選択対象にする(交差では選ばない)
+            if (pluginRegistry.get(obj.pluginId)?.capabilities?.printFrame) {
+              return rectContains(rect, bounds);
+            }
+            return rectsIntersect(bounds, rect);
           })
           .map((obj) => obj.id);
         const expanded = expandWithGroups(doc.objects, hits);
@@ -1449,7 +1495,28 @@ export function CanvasStage() {
   const viewBox = `${pan.x} ${pan.y} ${viewWidth} ${viewHeight}`;
 
   return (
-    <div ref={containerRef} className={styles.container}>
+    <div
+      ref={containerRef}
+      className={styles.container}
+      onDragOver={(e) => {
+        // 画像ファイルのドラッグ中は drop を許可する(既定は禁止)
+        if (dragHasFiles(e.dataTransfer)) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }
+      }}
+      onDrop={(e) => {
+        const blobs = imageBlobsFromDataTransfer(e.dataTransfer);
+        if (blobs.length === 0) return;
+        e.preventDefault();
+        const svg = svgRef.current;
+        const { pan, zoom } = useViewportStore.getState();
+        const center = svg
+          ? screenToWorld(e.clientX, e.clientY, svg, pan, zoom)
+          : { x: 0, y: 0 };
+        void insertImagesFromBlobs(blobs, center);
+      }}
+    >
       <svg
         ref={svgRef}
         data-canvas-stage

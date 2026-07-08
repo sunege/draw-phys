@@ -10,6 +10,7 @@ import type { ObjectRef, Rect, Transform } from '../core/types';
 enablePatches();
 
 export type AlignMode = 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom';
+export type DistributeMode = 'horizontal' | 'vertical';
 export type ReorderMode = 'front' | 'back' | 'forward' | 'backward';
 
 /** グループに属するオブジェクトはグループ全体へ選択を広げる */
@@ -97,6 +98,8 @@ interface DocumentState {
   ungroupSelection(): void;
   /** 選択オブジェクトを整列する(2個以上で有効) */
   alignSelection(mode: AlignMode): void;
+  /** 選択オブジェクトを等間隔に分布する(3個以上で有効。両端は固定し隙間を均等化) */
+  distributeSelection(mode: DistributeMode): void;
   /** 重なり順の変更 */
   reorderSelection(mode: ReorderMode): void;
   /** ロック/表示/コンストラクション状態の変更(履歴に残る) */
@@ -440,6 +443,45 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
               obj.transform.y += union.y + union.height - (rect.y + rect.height);
               break;
           }
+        }
+      });
+    },
+
+    distributeSelection(mode) {
+      const { selection, objects } = get();
+      if (selection.length < 3) return;
+      // 可動(非ロック)な選択のワールド矩形を集める
+      const items: { id: string; rect: Rect }[] = [];
+      for (const id of selection) {
+        const obj = objects[id];
+        if (!obj || obj.locked) continue;
+        const rect = objectWorldRect(obj);
+        if (rect) items.push({ id, rect });
+      }
+      if (items.length < 3) return;
+      const horizontal = mode === 'horizontal';
+      // 中心座標の昇順に並べ、両端はそのまま、内側を「隙間が均等」になるよう再配置する
+      const pos = (r: Rect) => (horizontal ? r.x + r.width / 2 : r.y + r.height / 2);
+      const size = (r: Rect) => (horizontal ? r.width : r.height);
+      const near = (r: Rect) => (horizontal ? r.x : r.y);
+      items.sort((a, b) => pos(a.rect) - pos(b.rect));
+      const first = items[0].rect;
+      const last = items[items.length - 1].rect;
+      const start = near(first); // 先頭の手前端(固定)
+      const end = near(last) + size(last); // 末尾の奥端(固定)
+      const totalSize = items.reduce((sum, it) => sum + size(it.rect), 0);
+      const gap = (end - start - totalSize) / (items.length - 1);
+      mutate((draft) => {
+        let cursor = start;
+        for (const it of items) {
+          const obj = draft[it.id];
+          const s = size(it.rect);
+          if (obj) {
+            const delta = cursor - near(it.rect);
+            if (horizontal) obj.transform.x += delta;
+            else obj.transform.y += delta;
+          }
+          cursor += s + gap;
         }
       });
     },

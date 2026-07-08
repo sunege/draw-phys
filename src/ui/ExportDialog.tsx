@@ -43,6 +43,29 @@ export function ExportDialog({ fileName, onClose }: { fileName: string; onClose:
       const exporter = await import('../export/exporter');
       const { objects, selection } = useDocumentStore.getState();
       const all = Object.values(objects);
+
+      // 用紙 + PDF のダウンロードは、全用紙枠(選択があればそれら)を実寸の複数ページPDFで出す
+      if (target === 'page' && format === 'pdf' && action === 'download') {
+        const frames = orderedPageFrames(objects);
+        const selected = frames.filter((f) => selection.includes(f.id));
+        const chosen = selected.length > 0 ? selected : frames;
+        const pages: import('../export/exporter').PdfPage[] = [];
+        for (const f of chosen) {
+          const region = exporter.frameRegion(f, pluginRegistry);
+          if (!region) continue;
+          // 全内容を用紙枠でクリップ(SVG viewBoxが自動クリップ)し白背景で焼く
+          const svg = await exporter.buildSvgString(all, region, pluginRegistry, '#ffffff');
+          pages.push({ svg, region });
+        }
+        if (pages.length === 0) {
+          setMessage('用紙枠がありません');
+          return;
+        }
+        saveAs(await exporter.exportPdfPages(pages, dpiToScale(dpi), true), `${fileName}.pdf`);
+        setMessage(`書き出しました（${pages.length}ページ）`);
+        return;
+      }
+
       // 用紙印刷は全内容を用紙枠でクリップして出す。それ以外は従来どおり
       const targets =
         target === 'selection' ? all.filter((o) => selection.includes(o.id)) : all;
@@ -179,6 +202,17 @@ export function ExportDialog({ fileName, onClose }: { fileName: string; onClose:
             </label>
           )}
         </div>
+
+        {isPage && format === 'pdf' && (
+          <p className={styles.message}>
+            全用紙枠（選択中があればそれら）をページ順に並べた複数ページPDFを書き出します。
+          </p>
+        )}
+        {isPage && format !== 'pdf' && (
+          <p className={styles.message}>
+            画像/SVGは選択中（無ければ先頭）の用紙1枚を書き出します。全ページはPDFで。
+          </p>
+        )}
 
         {message && <p className={styles.message}>{message}</p>}
 

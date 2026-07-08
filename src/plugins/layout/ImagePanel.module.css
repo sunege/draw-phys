@@ -1,0 +1,38 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+  border-top: 1px solid #e5e7eb;
+}
+
+.label {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.row button {
+  flex: 1 1 auto;
+  min-width: 44px;
+  padding: 4px 6px;
+  font-size: 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.row button:hover {
+  background: #f3f4f6;
+}
+
+.row button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

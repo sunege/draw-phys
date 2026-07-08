@@ -2,7 +2,12 @@ import { fromDisplayAngle, toDisplayAngle } from '../canvas/transformMath';
 import { findRotationLock } from '../core/constraints';
 import type { PropertyField } from '../core/plugin';
 import { pluginRegistry } from '../core/registry';
-import { useDocumentStore, type AlignMode, type ReorderMode } from '../state/documentStore';
+import {
+  useDocumentStore,
+  type AlignMode,
+  type DistributeMode,
+  type ReorderMode,
+} from '../state/documentStore';
 import styles from './PropertyPanel.module.css';
 
 const ALIGN_ACTIONS: { mode: AlignMode; label: string; title: string }[] = [
@@ -12,6 +17,11 @@ const ALIGN_ACTIONS: { mode: AlignMode; label: string; title: string }[] = [
   { mode: 'top', label: '⤒', title: '上揃え' },
   { mode: 'centerY', label: '⇳', title: '上下中央揃え' },
   { mode: 'bottom', label: '⤓', title: '下揃え' },
+];
+
+const DISTRIBUTE_ACTIONS: { mode: DistributeMode; label: string; title: string }[] = [
+  { mode: 'horizontal', label: '⇔', title: '左右に等間隔（3個以上）' },
+  { mode: 'vertical', label: '⇕', title: '上下に等間隔（3個以上）' },
 ];
 
 const REORDER_ACTIONS: { mode: ReorderMode; label: string; title: string }[] = [
@@ -28,6 +38,7 @@ function SelectionActions() {
   const store = useDocumentStore.getState();
 
   const multi = selection.length >= 2;
+  const multi3 = selection.length >= 3;
   const hasGroup = selection.some((id) => objects[id]?.groupId);
 
   // コンストラクション(補助線)へ切替可能な選択(capability を持つ 線・円 のみ)
@@ -81,6 +92,18 @@ function SelectionActions() {
             disabled={!multi}
             title={a.title}
             onClick={() => store.alignSelection(a.mode)}
+          >
+            {a.label}
+          </button>
+        ))}
+        {DISTRIBUTE_ACTIONS.map((a) => (
+          <button
+            key={a.mode}
+            type="button"
+            className={styles.iconAction}
+            disabled={!multi3}
+            title={a.title}
+            onClick={() => store.distributeSelection(a.mode)}
           >
             {a.label}
           </button>

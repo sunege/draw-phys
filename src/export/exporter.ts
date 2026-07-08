@@ -134,11 +134,56 @@ export async function exportRaster(
 }
 
 /**
- * SVGをPDFへ。
- * region は内部単位(1単位=1/96インチ)。
- * - physicalMm=false(既定): 単位→pt(×0.75)でページを図の縦横比に合わせる(図の書き出し)。
+ * canvas面積の安全上限(px)。Safariは概ね16.7Mpxを超えるとcanvasが空になる。
+ * 大判・高DPIで上限を超える場合は自動で倍率を落として破綻を防ぐ(実寸は不変・解像度のみ低下)。
+ */
+const MAX_CANVAS_PX = 16_000_000;
+
+/** region(内部単位)を倍率scaleでラスタライズしたときの面積がcanvas上限を超えないよう抑えた倍率 */
+function cappedScale(region: Rect, scale: number): number {
+  const area = region.width * scale * (region.height * scale);
+  return area <= MAX_CANVAS_PX ? scale : scale * Math.sqrt(MAX_CANVAS_PX / area);
+}
+
+/** PDFの1ページ分。self-contained SVGとそのワールド矩形(内部単位) */
+export interface PdfPage {
+  svg: string;
+  region: Rect;
+}
+
+/**
+ * 複数ページのSVGを1つのPDFにまとめる。各ページは自分の region の縦横比でサイズを決める。
+ * - physicalMm=false: 単位→pt(×0.75)で図の縦横比に合わせる(図の書き出し)。
  * - physicalMm=true: 単位→mm へ換算し実寸PDFにする(用紙印刷)。
  *   このとき scale は目標DPIに対応する倍率(dpiToScale=dpi/96)を渡すこと。
+ */
+export async function exportPdfPages(
+  pages: PdfPage[],
+  scale: number,
+  physicalMm = false,
+): Promise<Blob> {
+  if (pages.length === 0) throw new Error('書き出すページがありません');
+  const { jsPDF } = await import('jspdf');
+  let pdf: import('jspdf').jsPDF | null = null;
+  for (const page of pages) {
+    const canvas = await rasterize(page.svg, page.region, cappedScale(page.region, scale), '#ffffff');
+    const [w, h] = physicalMm
+      ? [unitsToMm(page.region.width), unitsToMm(page.region.height)]
+      : [unitsToPt(page.region.width), unitsToPt(page.region.height)];
+    const orientation = w >= h ? 'landscape' : 'portrait';
+    if (!pdf) {
+      pdf = new jsPDF({ orientation, unit: physicalMm ? 'mm' : 'pt', format: [w, h] });
+    } else {
+      pdf.addPage([w, h], orientation);
+    }
+    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, w, h);
+  }
+  return pdf!.output('blob');
+}
+
+/**
+ * 単一SVGをPDFへ。複数ページ版 exportPdfPages の1ページ薄ラッパー。
+ * region は内部単位(1単位=1/96インチ)。physicalMm の意味は exportPdfPages に同じ。
  */
 export async function exportPdf(
   svgString: string,
@@ -146,18 +191,7 @@ export async function exportPdf(
   scale: number,
   physicalMm = false,
 ): Promise<Blob> {
-  const { jsPDF } = await import('jspdf');
-  const canvas = await rasterize(svgString, region, scale, '#ffffff');
-  const [w, h] = physicalMm
-    ? [unitsToMm(region.width), unitsToMm(region.height)]
-    : [unitsToPt(region.width), unitsToPt(region.height)];
-  const pdf = new jsPDF({
-    orientation: w >= h ? 'landscape' : 'portrait',
-    unit: physicalMm ? 'mm' : 'pt',
-    format: [w, h],
-  });
-  pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, w, h);
-  return pdf.output('blob');
+  return exportPdfPages([{ svg: svgString, region }], scale, physicalMm);
 }
 
 /**

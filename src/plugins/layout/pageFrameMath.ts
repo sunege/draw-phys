@@ -1,6 +1,6 @@
 /**
  * 用紙枠プラグインの純粋部分(プリセット・向き変換)。
- * 単位規約: 1ワールド単位 = 1mm。用紙枠がこの規約の基準になる。
+ * サイズ等は props に実寸(mm)で持ち、描画・当たり判定へは mmToUnits で内部単位へ換算する。
  */
 
 export interface PageFrameProps {
@@ -22,6 +22,14 @@ export interface PageFrameProps {
   fill: string;
   /** 枠線色 */
   stroke: string;
+  /** レイアウト補助線(等分線・対角線)を表示する(キャンバス上のみ。書き出しには出ない) */
+  showGuides: boolean;
+  /** 縦の等分数(guideCols=2 で中央に縦線1本)。1で縦の等分線なし */
+  guideCols: number;
+  /** 横の等分数(guideRows=2 で中央に横線1本)。1で横の等分線なし */
+  guideRows: number;
+  /** 対角線の補助線を引く */
+  guideDiagonals: boolean;
 }
 
 export interface PagePreset {
