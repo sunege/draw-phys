@@ -33,7 +33,6 @@ export const pointPlugin: PhysicsObjectPlugin<PointProps> = {
     height: props.radius * 2,
   }),
   getSnapPoints: () => [{ x: 0, y: 0 }],
-  applyScale: (props, fx) => ({ ...props, radius: props.radius * fx }),
-  capabilities: { rotatable: false, scalable: 'uniform' },
+  capabilities: { rotatable: false, scalable: 'none' },
   placement: 'click',
 };
