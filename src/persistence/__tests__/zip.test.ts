@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SceneDocumentJson } from '../../core/document';
 import type { WorkspaceNode } from '../types';
-import { buildWorkspaceZip, parseWorkspaceZip } from '../zip';
+import { buildWorkspaceZip, isSceneDocument, parseWorkspaceZip } from '../zip';
 
 function node(partial: Partial<WorkspaceNode> & Pick<WorkspaceNode, 'id' | 'name' | 'type'>): WorkspaceNode {
   return { parentId: null, updatedAt: 0, ...partial };
@@ -39,6 +39,16 @@ describe('workspace zip', () => {
     expect(nested?.doc.objects).toHaveLength(2);
     const root = entries.find((e) => e.name === 'ルート図');
     expect(root?.folders).toEqual([]);
+  });
+
+  it('isSceneDocumentは保存形式のみを妥当と判定する(個別読込のバリデーション)', () => {
+    expect(isSceneDocument(doc(1))).toBe(true);
+    expect(isSceneDocument({ schemaVersion: 1, objects: [] })).toBe(true);
+    expect(isSceneDocument({ hello: 1 })).toBe(false);
+    expect(isSceneDocument({ schemaVersion: 2, objects: [] })).toBe(false);
+    expect(isSceneDocument({ schemaVersion: 1 })).toBe(false);
+    expect(isSceneDocument(null)).toBe(false);
+    expect(isSceneDocument('文字列')).toBe(false);
   });
 
   it('不正なJSONエントリは読み飛ばす', async () => {

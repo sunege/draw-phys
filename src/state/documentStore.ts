@@ -61,6 +61,8 @@ interface DocumentState {
   applyTrim(targetId: string, pieces: TrimPiece[]): void;
   /** プラグイン固有プロパティの更新(履歴に残る) */
   updateProps(id: string, patch: Record<string, unknown>): void;
+  /** 複数オブジェクトのpropsを一括更新する(1履歴エントリ)。ページ順の振り直し等に使う */
+  updatePropsMany(patches: Record<string, Record<string, unknown>>): void;
   /** オブジェクトの参照(拘束)を差し替える。空配列で拘束解除(履歴に残る) */
   setObjectRefs(id: string, refs: ObjectRef[]): void;
   /** 参照を一時更新して再解決する(接続点スライドのドラッグ中。履歴に残さない) */
@@ -139,10 +141,23 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
     nextZIndex: 1,
 
     addObject(obj) {
+      // 生成フック: 同種の既存オブジェクトを見て初期propsを補正(用紙枠のページ自動採番など)
+      const plugin = pluginRegistry.get(obj.pluginId);
+      const toAdd = plugin?.initProps
+        ? {
+            ...obj,
+            props: plugin.initProps(
+              obj.props,
+              Object.values(get().objects)
+                .filter((o) => o.pluginId === obj.pluginId)
+                .map((o) => o.props),
+            ),
+          }
+        : obj;
       mutate((draft) => {
-        draft[obj.id] = obj;
+        draft[toAdd.id] = toAdd;
       });
-      set({ nextZIndex: Math.max(get().nextZIndex, obj.zIndex) + 1, selection: [obj.id] });
+      set({ nextZIndex: Math.max(get().nextZIndex, toAdd.zIndex) + 1, selection: [toAdd.id] });
     },
 
     addObjects(objs) {
@@ -238,6 +253,15 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         const obj = draft[id];
         if (!obj) return;
         Object.assign(obj.props, patch);
+      });
+    },
+
+    updatePropsMany(patches) {
+      mutate((draft) => {
+        for (const [id, patch] of Object.entries(patches)) {
+          const obj = draft[id];
+          if (obj) Object.assign(obj.props, patch);
+        }
       });
     },
 

@@ -32,6 +32,7 @@ import { screenToWorld } from './coords';
 import { isDoubleClick, type ClickRecord } from './doubleClick';
 import { GridLayer } from './GridLayer';
 import { ObjectsLayer } from './ObjectsLayer';
+import { PageBadges } from './PageBadges';
 import { SelectionOverlay } from './SelectionOverlay';
 import {
   snapAnchorPoint,
@@ -1463,6 +1464,7 @@ export function CanvasStage() {
       >
         <GridLayer viewWidth={size.width} viewHeight={size.height} />
         <ObjectsLayer />
+        <PageBadges />
         {preview && (
           <g transform={transformToString(preview.transform)} opacity={0.5} pointerEvents="none">
             <preview.plugin.Renderer props={preview.props} transform={preview.transform} />

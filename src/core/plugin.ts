@@ -94,6 +94,11 @@ export interface PluginCapabilities {
   /** 'x' はローカルX軸方向(線の長さ方向)のみ拡大縮小可 */
   scalable?: 'both' | 'uniform' | 'x' | 'none';
   /**
+   * 印刷用の用紙枠。true のオブジェクトは書き出しの「用紙」ターゲットの
+   * 印刷範囲になる(本体は具体的な pluginId を知らずにこのフラグで発見する)。
+   */
+  printFrame?: boolean;
+  /**
    * 作図の補助線(コンストラクション)に切り替えられるか。
    * true のオブジェクトは「コンストラクション」トグルが有効になり、
    * ON のとき色付き点線で描かれ書き出しから除外される(線・円が対象)。
@@ -243,6 +248,12 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
    * (他オブジェクトへのスナップは有効のまま)。
    */
   isLengthLocked?(props: P): boolean;
+  /**
+   * クリック/ドラッグ配置で生成された直後に、同種(同pluginId)の既存オブジェクトに
+   * 応じて初期propsを補正する(任意)。siblings は既存の同種オブジェクトの props 配列
+   * (新規自身は含まない)。例: 用紙枠が末尾の次のページ番号を自動採番する。
+   */
+  initProps?(props: P, siblings: P[]): P;
   /** 旧バージョンのpropsを現行スキーマへ移行する */
   migrate?(fromVersion: number, props: unknown): P;
   capabilities?: PluginCapabilities;

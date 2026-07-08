@@ -5,6 +5,7 @@ import { sortedObjects } from '../core/document';
 import { transformToString, unionRects, worldBounds } from '../core/geometry';
 import type { PluginRegistry } from '../core/registry';
 import type { Rect } from '../core/types';
+import { unitsToMm, unitsToPt } from '../core/units';
 
 const EXPORT_MARGIN = 10;
 
@@ -26,6 +27,16 @@ export function contentRegion(objects: SceneObject[], registry: PluginRegistry):
     width: union.width + EXPORT_MARGIN * 2,
     height: union.height + EXPORT_MARGIN * 2,
   };
+}
+
+/**
+ * 用紙枠オブジェクトのワールド矩形(印刷範囲そのもの、余白は足さない)。
+ * 用紙は回転不可のため worldBounds は用紙矩形と一致する。
+ */
+export function frameRegion(obj: SceneObject, registry: PluginRegistry): Rect | null {
+  const plugin = registry.get(obj.pluginId);
+  if (!plugin) return null;
+  return worldBounds(plugin.getBounds(obj.props), obj.transform);
 }
 
 /**
@@ -122,18 +133,30 @@ export async function exportRaster(
   });
 }
 
-export async function exportPdf(svgString: string, region: Rect, scale: number): Promise<Blob> {
+/**
+ * SVGをPDFへ。
+ * region は内部単位(1単位=1/96インチ)。
+ * - physicalMm=false(既定): 単位→pt(×0.75)でページを図の縦横比に合わせる(図の書き出し)。
+ * - physicalMm=true: 単位→mm へ換算し実寸PDFにする(用紙印刷)。
+ *   このとき scale は目標DPIに対応する倍率(dpiToScale=dpi/96)を渡すこと。
+ */
+export async function exportPdf(
+  svgString: string,
+  region: Rect,
+  scale: number,
+  physicalMm = false,
+): Promise<Blob> {
   const { jsPDF } = await import('jspdf');
   const canvas = await rasterize(svgString, region, scale, '#ffffff');
-  // px→pt(72/96)。ページサイズを図の縦横比に合わせる
-  const widthPt = region.width * 0.75;
-  const heightPt = region.height * 0.75;
+  const [w, h] = physicalMm
+    ? [unitsToMm(region.width), unitsToMm(region.height)]
+    : [unitsToPt(region.width), unitsToPt(region.height)];
   const pdf = new jsPDF({
-    orientation: widthPt >= heightPt ? 'landscape' : 'portrait',
-    unit: 'pt',
-    format: [widthPt, heightPt],
+    orientation: w >= h ? 'landscape' : 'portrait',
+    unit: physicalMm ? 'mm' : 'pt',
+    format: [w, h],
   });
-  pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, widthPt, heightPt);
+  pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, w, h);
   return pdf.output('blob');
 }
 

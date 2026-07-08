@@ -47,7 +47,8 @@ export interface ZipEntry {
   doc: SceneDocumentJson;
 }
 
-function isSceneDocument(value: unknown): value is SceneDocumentJson {
+/** 値が保存形式(SceneDocumentJson)として妥当か。単一JSON読込のバリデーションにも使う */
+export function isSceneDocument(value: unknown): value is SceneDocumentJson {
   return (
     typeof value === 'object' &&
     value !== null &&

@@ -2,7 +2,7 @@ import { saveAs } from 'file-saver';
 import { useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { StorageAdapter, WorkspaceNode } from '../persistence/types';
-import { buildWorkspaceZip, parseWorkspaceZip } from '../persistence/zip';
+import { buildWorkspaceZip, isSceneDocument, parseWorkspaceZip } from '../persistence/zip';
 import { useWorkspaceStore } from '../state/workspaceStore';
 import styles from './WorkspacePanel.module.css';
 
@@ -43,6 +43,16 @@ function NodeRow({ node, depth, expanded, toggle }: RowProps) {
   const onRename = () => {
     const name = window.prompt('新しい名前', node.name);
     if (name?.trim()) void store.rename(node.id, name.trim());
+  };
+
+  const onDownload = async () => {
+    const adapter = useWorkspaceStore.getState().adapter;
+    if (!adapter) return;
+    const doc = (await adapter.readDocument(node.id)) ?? { schemaVersion: 1 as const, objects: [] };
+    saveAs(
+      new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }),
+      `${node.name}.json`,
+    );
   };
 
   const onDelete = () => {
@@ -86,6 +96,11 @@ function NodeRow({ node, depth, expanded, toggle }: RowProps) {
         {node.type === 'folder' ? <FolderIcon /> : <FileIcon />}
         <span className={styles.name}>{node.name}</span>
         <span className={styles.actions} onClick={(e) => e.stopPropagation()}>
+          {node.type === 'file' && (
+            <button type="button" title="ダウンロード(JSON)" onClick={() => void onDownload()}>
+              ⬇
+            </button>
+          )}
           <button type="button" title="名前を変更" onClick={onRename}>
             ✎
           </button>
@@ -161,18 +176,10 @@ export function WorkspacePanel() {
 
   const requireAdapterSafe = (): StorageAdapter | null => useWorkspaceStore.getState().adapter;
 
-  const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    const adapter = requireAdapterSafe();
-    if (!adapter) return;
+  // ZIPを展開し、ZIP名のフォルダ配下へ復元する(既存データとの衝突を避ける)。復元件数を返す
+  const importZip = async (file: File, adapter: StorageAdapter): Promise<number> => {
     const entries = await parseWorkspaceZip(file);
-    if (entries.length === 0) {
-      window.alert('復元できるファイルがZIPに見つかりませんでした');
-      return;
-    }
-    // ZIP名のフォルダを作り、その配下へ展開する(既存データとの衝突を避ける)
+    if (entries.length === 0) return 0;
     const rootName = file.name.replace(/\.zip$/i, '') || 'インポート';
     const rootId = await store.createFolder(null, rootName);
     const folderIds = new Map<string, string>();
@@ -190,6 +197,43 @@ export function WorkspacePanel() {
       }
       const fileId = await store.createFile(parentId, entry.name);
       await adapter.writeDocument(fileId, entry.doc);
+    }
+    return entries.length;
+  };
+
+  // 単一の図JSONをルート直下へ復元する。妥当なドキュメントでなければ0を返す
+  const importJson = async (file: File, adapter: StorageAdapter): Promise<number> => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      return 0;
+    }
+    if (!isSceneDocument(parsed)) return 0;
+    const name = file.name.replace(/\.json$/i, '') || 'インポート';
+    const fileId = await store.createFile(null, name);
+    await adapter.writeDocument(fileId, parsed);
+    return 1;
+  };
+
+  const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (files.length === 0) return;
+    const adapter = requireAdapterSafe();
+    if (!adapter) return;
+
+    let imported = 0;
+    for (const file of files) {
+      const lower = file.name.toLowerCase();
+      if (lower.endsWith('.zip')) {
+        imported += await importZip(file, adapter);
+      } else if (lower.endsWith('.json')) {
+        imported += await importJson(file, adapter);
+      }
+    }
+    if (imported === 0) {
+      window.alert('復元できるファイル(.json / .zip)が見つかりませんでした');
     }
   };
 
@@ -212,13 +256,18 @@ export function WorkspacePanel() {
         <button type="button" onClick={() => void onExport()} title="ワークスペース全体をZIPで書き出し">
           ZIP出力
         </button>
-        <button type="button" onClick={() => importInputRef.current?.click()} title="ZIPから復元">
-          ZIP読込
+        <button
+          type="button"
+          onClick={() => importInputRef.current?.click()}
+          title="図JSON(個別) / ZIP(一括)から読込"
+        >
+          読込
         </button>
         <input
           ref={importInputRef}
           type="file"
-          accept=".zip"
+          accept=".zip,.json"
+          multiple
           hidden
           onChange={(e) => void onImportFile(e)}
         />

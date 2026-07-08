@@ -8,6 +8,7 @@ import styles from './MenuBar.module.css';
 export function MenuBar({ fileName }: { fileName?: string }) {
   const [exportOpen, setExportOpen] = useState(false);
   const [copying, setCopying] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const showToast = useToastStore((s) => s.showToast);
   const canUndo = useDocumentStore((s) => s.undoStack.length > 0);
   const canRedo = useDocumentStore((s) => s.redoStack.length > 0);
@@ -34,6 +35,21 @@ export function MenuBar({ fileName }: { fileName?: string }) {
       showToast(err instanceof Error ? err.message : 'コピーに失敗しました', 'error');
     } finally {
       setCopying(false);
+    }
+  };
+
+  // 用紙枠を実寸PNG化して印刷ダイアログを開く(用紙枠が無ければ案内トースト)
+  const onPrint = async () => {
+    if (printing) return;
+    setPrinting(true);
+    try {
+      const { printDocument } = await import('../export/print');
+      const { objects, selection } = useDocumentStore.getState();
+      await printDocument(objects, selection);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : '印刷に失敗しました', 'error');
+    } finally {
+      setPrinting(false);
     }
   };
 
@@ -77,6 +93,15 @@ export function MenuBar({ fileName }: { fileName?: string }) {
         title="PNG / JPEG / SVG / PDF へ書き出し・クリップボードコピー"
       >
         書き出し…
+      </button>
+      <button
+        type="button"
+        className={styles.iconButton}
+        onClick={() => void onPrint()}
+        disabled={printing}
+        title="用紙枠を実寸で印刷する(用紙枠が必要)"
+      >
+        🖨 印刷
       </button>
       <div className={styles.spacer} />
       <label className={styles.toggle}>

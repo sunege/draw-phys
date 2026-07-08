@@ -13,6 +13,7 @@ import { pointPlugin } from './basic/point';
 import { rectPlugin } from './basic/rect';
 import { textPlugin } from './basic/text';
 import { graphPlugin } from './graph/graph';
+import { pageFramePlugin } from './layout/pageFrame';
 import { blockPlugin } from './mechanics/block';
 import { floorPlugin } from './mechanics/floor';
 import { forceVectorPlugin } from './mechanics/forceVector';
@@ -43,4 +44,5 @@ export function registerStandardPlugins(): void {
   pluginRegistry.register(angleMarkPlugin);
   pluginRegistry.register(lengthMarkPlugin);
   pluginRegistry.register(graphPlugin);
+  pluginRegistry.register(pageFramePlugin);
 }

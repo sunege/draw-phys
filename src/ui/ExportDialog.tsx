@@ -1,12 +1,14 @@
 import { saveAs } from 'file-saver';
 import { useState } from 'react';
+import { orderedPageFrames } from '../core/pageFrames';
 import { pluginRegistry } from '../core/registry';
 import type { Rect } from '../core/types';
+import { dpiToScale } from '../core/units';
 import { useDocumentStore } from '../state/documentStore';
 import { useViewportStore } from '../state/viewportStore';
 import styles from './ExportDialog.module.css';
 
-type Target = 'all' | 'selection' | 'viewport';
+type Target = 'all' | 'selection' | 'viewport' | 'page';
 type Format = 'png' | 'jpeg' | 'svg' | 'pdf';
 
 /** キャンバスに現在表示されている範囲(ワールド座標) */
@@ -20,13 +22,18 @@ function viewportWorldRect(): Rect | null {
 
 export function ExportDialog({ fileName, onClose }: { fileName: string; onClose: () => void }) {
   const selectionCount = useDocumentStore((s) => s.selection.length);
-  // 選択があれば既定を「選択オブジェクト」にする
-  const [target, setTarget] = useState<Target>(() => (selectionCount > 0 ? 'selection' : 'all'));
+  const pageFrameCount = useDocumentStore((s) => orderedPageFrames(s.objects).length);
+  // 選択があれば「選択」、無ければ用紙枠があれば「用紙」、それも無ければ全体を既定にする
+  const [target, setTarget] = useState<Target>(() =>
+    selectionCount > 0 ? 'selection' : pageFrameCount > 0 ? 'page' : 'all',
+  );
   const [format, setFormat] = useState<Format>('png');
   const [scale, setScale] = useState(2);
+  const [dpi, setDpi] = useState(300);
   const [transparent, setTransparent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const isPage = target === 'page';
 
   const run = async (action: 'download' | 'clipboard') => {
     setBusy(true);
@@ -36,32 +43,49 @@ export function ExportDialog({ fileName, onClose }: { fileName: string; onClose:
       const exporter = await import('../export/exporter');
       const { objects, selection } = useDocumentStore.getState();
       const all = Object.values(objects);
+      // 用紙印刷は全内容を用紙枠でクリップして出す。それ以外は従来どおり
       const targets =
         target === 'selection' ? all.filter((o) => selection.includes(o.id)) : all;
-      const region =
-        target === 'viewport'
-          ? viewportWorldRect()
-          : exporter.contentRegion(targets, pluginRegistry);
+
+      let region: Rect | null;
+      if (target === 'page') {
+        const frames = orderedPageFrames(objects);
+        // 用紙枠を選択中ならそれを、無ければ先頭ページの用紙枠を書き出す
+        const frame = frames.find((f) => selection.includes(f.id)) ?? frames[0];
+        region = frame ? exporter.frameRegion(frame, pluginRegistry) : null;
+      } else if (target === 'viewport') {
+        region = viewportWorldRect();
+      } else {
+        region = exporter.contentRegion(targets, pluginRegistry);
+      }
       if (!region || targets.length === 0) {
-        setMessage('書き出す対象がありません');
+        setMessage(target === 'page' ? '用紙枠がありません' : '書き出す対象がありません');
         return;
       }
-      const background = format === 'svg' && !transparent ? '#ffffff' : undefined;
+
+      // 用紙印刷は常に白背景・不透過。ラスタ倍率はDPI(region は内部単位)から求める
+      const effTransparent = target === 'page' ? false : transparent;
+      const rasterScale = target === 'page' ? dpiToScale(dpi) : scale;
+      const background = format === 'svg' && !effTransparent ? '#ffffff' : undefined;
       const svg = await exporter.buildSvgString(targets, region, pluginRegistry, background);
 
       if (action === 'clipboard') {
         // クリップボードは常にPNGで渡す(Word/PowerPointがSVGを誤描画するため)
-        await exporter.copyToClipboard(svg, region, transparent);
+        await exporter.copyToClipboard(svg, region, effTransparent);
         setMessage('クリップボードへコピーしました（PNG）');
         return;
       }
       if (format === 'svg') {
         saveAs(new Blob([svg], { type: 'image/svg+xml' }), `${fileName}.svg`);
       } else if (format === 'pdf') {
-        saveAs(await exporter.exportPdf(svg, region, scale), `${fileName}.pdf`);
+        saveAs(await exporter.exportPdf(svg, region, rasterScale, target === 'page'), `${fileName}.pdf`);
       } else {
         saveAs(
-          await exporter.exportRaster(svg, region, { scale, format, transparent }),
+          await exporter.exportRaster(svg, region, {
+            scale: rasterScale,
+            format,
+            transparent: effTransparent,
+          }),
           `${fileName}.${format}`,
         );
       }
@@ -101,6 +125,15 @@ export function ExportDialog({ fileName, onClose }: { fileName: string; onClose:
             />
             表示範囲
           </label>
+          <label title="用紙枠の内側を印刷範囲として書き出す">
+            <input
+              type="radio"
+              checked={target === 'page'}
+              onChange={() => setTarget('page')}
+              disabled={pageFrameCount === 0}
+            />
+            用紙({pageFrameCount})
+          </label>
         </fieldset>
 
         <fieldset className={styles.fieldset}>
@@ -114,7 +147,17 @@ export function ExportDialog({ fileName, onClose }: { fileName: string; onClose:
         </fieldset>
 
         <div className={styles.options}>
-          {(format === 'png' || format === 'jpeg' || format === 'pdf') && (
+          {isPage && (format === 'png' || format === 'jpeg' || format === 'pdf') && (
+            <label title="用紙の実寸(mm)に対する印刷解像度">
+              解像度
+              <select value={dpi} onChange={(e) => setDpi(Number(e.target.value))}>
+                <option value={150}>150 dpi</option>
+                <option value={300}>300 dpi（印刷）</option>
+                <option value={600}>600 dpi</option>
+              </select>
+            </label>
+          )}
+          {!isPage && (format === 'png' || format === 'jpeg' || format === 'pdf') && (
             <label>
               倍率
               <select value={scale} onChange={(e) => setScale(Number(e.target.value))}>
@@ -125,7 +168,7 @@ export function ExportDialog({ fileName, onClose }: { fileName: string; onClose:
               </select>
             </label>
           )}
-          {(format === 'png' || format === 'svg') && (
+          {!isPage && (format === 'png' || format === 'svg') && (
             <label>
               <input
                 type="checkbox"
