@@ -29,8 +29,8 @@ export const floorPlugin: PhysicsObjectPlugin<FloorProps> = {
   ),
   defaultProps: {
     length: 200,
-    stroke: '#333333',
-    strokeWidth: 2,
+    stroke: '#000000',
+    strokeWidth: 1,
     hatchSpacing: 12,
     hatchLength: 10,
   },

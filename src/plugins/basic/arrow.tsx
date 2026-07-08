@@ -43,13 +43,13 @@ export const arrowPlugin: PhysicsObjectPlugin<ArrowProps> = {
   ),
   defaultProps: {
     length: 100,
-    stroke: '#333333',
-    strokeWidth: 2,
-    headSize: 12,
+    stroke: '#000000',
+    strokeWidth: 1,
+    headSize: 9,
     doubleHead: false,
     lineStyle: 'solid',
   },
-  defaultSize: { width: 100, height: 12 },
+  defaultSize: { width: 100, height: 9 },
   propertySchema: [
     { key: 'length', label: '長さ', type: 'number', min: 1, step: 10 },
     { key: 'stroke', label: '色', type: 'color' },

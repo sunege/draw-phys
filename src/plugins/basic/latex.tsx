@@ -129,8 +129,8 @@ export const latexPlugin: PhysicsObjectPlugin<LatexProps> = {
   ),
   defaultProps: {
     formula: 'F = ma',
-    fontSize: 24,
-    color: '#333333',
+    fontSize: 12,
+    color: '#000000',
     bg: false,
   },
   defaultSize: { width: 100, height: 34 },

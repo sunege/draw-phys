@@ -17,10 +17,10 @@ export const pointPlugin: PhysicsObjectPlugin<PointProps> = {
     </svg>
   ),
   defaultProps: {
-    radius: 5,
-    color: '#333333',
+    radius: 2,
+    color: '#000000',
   },
-  defaultSize: { width: 10, height: 10 },
+  defaultSize: { width: 4, height: 4 },
   propertySchema: [
     { key: 'radius', label: '半径', type: 'number', min: 0.5, step: 0.5 },
     { key: 'color', label: '色', type: 'color' },

@@ -39,12 +39,12 @@ export const linePlugin: PhysicsObjectPlugin<LineProps> = {
   ),
   defaultProps: {
     length: 100,
-    stroke: '#333333',
-    strokeWidth: 2,
+    stroke: '#000000',
+    strokeWidth: 1,
     lineStyle: 'solid',
     lengthLocked: false,
   },
-  defaultSize: { width: 100, height: 2 },
+  defaultSize: { width: 100, height: 1 },
   propertySchema: [
     { key: 'length', label: '長さ', type: 'number', min: 1, step: 10 },
     { key: 'stroke', label: '線色', type: 'color' },

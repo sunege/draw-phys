@@ -49,9 +49,9 @@ export const textPlugin: PhysicsObjectPlugin<TextProps> = {
   ),
   defaultProps: {
     text: 'テキスト',
-    fontSize: 20,
+    fontSize: 12,
     fontFamily: DEFAULT_FONT_FAMILY,
-    color: '#333333',
+    color: '#000000',
     bold: false,
     bg: false,
   },

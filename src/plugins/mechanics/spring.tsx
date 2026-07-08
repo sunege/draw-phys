@@ -52,8 +52,8 @@ export const springPlugin: PhysicsObjectPlugin<SpringProps> = {
     length: 120,
     coils: 6,
     amplitude: 10,
-    stroke: '#333333',
-    strokeWidth: 2,
+    stroke: '#000000',
+    strokeWidth: 1,
   },
   defaultSize: { width: 120, height: 20 },
   propertySchema: [
