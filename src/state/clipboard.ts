@@ -1,11 +1,66 @@
 import type { SceneObject } from '../core/document';
 import { useDocumentStore } from './documentStore';
 
-/** アプリ内クリップボード(OSクリップボードへの画像コピーはM6で対応) */
+/** アプリ内クリップボード(図形のコピー/貼付け) */
 let buffer: SceneObject[] = [];
 let pasteCount = 0;
 
 const PASTE_OFFSET = 20;
+
+// --- OSクリップボード画像とアプリ内コピー(Ctrl+C)の競合調停用の状態 ---
+/** 直近のコピーがアプリ内(Ctrl+C)で、貼付け時に図形を優先すべきか */
+let internalActive = false;
+/** コピー後にウィンドウがブラーしたか(＝別アプリで画像をコピーした可能性がある) */
+let blurredSinceCopy = false;
+/** 直近に貼った/優先判定に使ったクリップボード画像の指紋(type:size) */
+let lastImageKey = '';
+
+export type PasteTarget = 'image' | 'internal' | 'none';
+
+/**
+ * クリップボード画像とアプリ内コピーのどちらを貼るかを純粋に判定する。
+ * 方針は「直近のコピー操作を優先」:
+ * - 画像が無ければ図形(あれば)。
+ * - 画像があっても、アプリ内コピーが有効で、その画像が「新規(未見)かつコピー後に
+ *   ウィンドウがブラーした(＝外部で新たにコピーされた可能性)」でない限り図形を優先。
+ *   これで「同じ画像が残っているだけ」の状況では図形の貼付けができる。
+ */
+export function decidePasteTarget(params: {
+  hasImage: boolean;
+  imageKey: string | null;
+  lastImageKey: string;
+  hasInternal: boolean;
+  internalActive: boolean;
+  blurredSinceCopy: boolean;
+}): PasteTarget {
+  if (!params.hasImage) return params.hasInternal ? 'internal' : 'none';
+  const competes = params.internalActive && params.hasInternal;
+  if (!competes) return 'image';
+  const imageIsFresh = params.imageKey !== params.lastImageKey && params.blurredSinceCopy;
+  return imageIsFresh ? 'image' : 'internal';
+}
+
+/** decidePasteTarget を現在の状態で評価し、画像優先が決まったら内部状態を更新する */
+export function chooseClipboardTarget(imageKey: string | null): PasteTarget {
+  const target = decidePasteTarget({
+    hasImage: imageKey !== null,
+    imageKey,
+    lastImageKey,
+    hasInternal: buffer.length > 0,
+    internalActive,
+    blurredSinceCopy,
+  });
+  if (target === 'image') {
+    lastImageKey = imageKey ?? lastImageKey;
+    internalActive = false; // 画像が勝ったらアプリ内コピーの優先を解除
+  }
+  return target;
+}
+
+/** ウィンドウがブラーしたことを記録する(アプリ内コピー中のみ意味を持つ) */
+export function markWindowBlurred(): void {
+  if (internalActive) blurredSinceCopy = true;
+}
 
 export function copySelection(): void {
   const { objects, selection } = useDocumentStore.getState();
@@ -14,6 +69,9 @@ export function copySelection(): void {
     .filter((obj): obj is SceneObject => obj !== undefined)
     .map((obj) => structuredClone(obj));
   pasteCount = 0;
+  // このコピーを「直近のコピー操作」とし、以後の貼付けで図形を優先する
+  internalActive = buffer.length > 0;
+  blurredSinceCopy = false;
 }
 
 export function pasteClipboard(): void {

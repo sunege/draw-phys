@@ -20,7 +20,13 @@ import {
 import type { AnyPlugin, EdgePick, SegmentPick } from '../core/plugin';
 import { pluginRegistry } from '../core/registry';
 import type { ObjectRef, Point, Rect, Transform } from '../core/types';
-import { copySelection, duplicateSelection, pasteClipboard } from '../state/clipboard';
+import {
+  chooseClipboardTarget,
+  copySelection,
+  duplicateSelection,
+  markWindowBlurred,
+  pasteClipboard,
+} from '../state/clipboard';
 import { useConstraintStore } from '../state/constraintStore';
 import { expandWithGroups, useDocumentStore } from '../state/documentStore';
 import { useEditorModalStore } from '../state/editorModalStore';
@@ -488,15 +494,19 @@ export function CanvasStage() {
     };
   }, []);
 
-  // クリップボード貼り付け(Ctrl+V)。画像があれば画像オブジェクトを、無ければ
-  // アプリ内クリップボード(コピーした図形)を貼る。画像はビュー中心に置く。
+  // クリップボード貼り付け(Ctrl+V)。OSクリップボード画像とアプリ内コピー(図形)の
+  // どちらを貼るかは chooseClipboardTarget が「直近のコピー操作優先」で調停する。
+  // (画像が残っているだけの状態で図形をCtrl+Cしたら図形が貼れるようにするため)
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       if (isEditableTarget(e.target)) return; // 入力欄への貼り付けは邪魔しない
       const dt = e.clipboardData;
       const blobs = dt ? imageBlobsFromDataTransfer(dt) : [];
-      if (blobs.length > 0) {
-        e.preventDefault();
+      const imageKey = blobs.length ? blobs.map((b) => `${b.type}:${b.size}`).join('|') : null;
+      const target = chooseClipboardTarget(imageKey);
+      if (target === 'none') return; // 貼るものが無ければ既定に任せる
+      e.preventDefault();
+      if (target === 'image') {
         const svg = svgRef.current;
         const { pan, zoom } = useViewportStore.getState();
         let center: Point = { x: 0, y: 0 };
@@ -505,13 +515,17 @@ export function CanvasStage() {
           center = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2, svg, pan, zoom);
         }
         void insertImagesFromBlobs(blobs, center);
-        return;
+      } else {
+        pasteClipboard();
       }
-      e.preventDefault();
-      pasteClipboard();
     };
     window.addEventListener('paste', onPaste);
-    return () => window.removeEventListener('paste', onPaste);
+    // 別アプリへ移った(＝外部で画像コピーの可能性)ことを記録し、画像の鮮度判定に使う
+    window.addEventListener('blur', markWindowBlurred);
+    return () => {
+      window.removeEventListener('paste', onPaste);
+      window.removeEventListener('blur', markWindowBlurred);
+    };
   }, []);
 
   // ツールを切り替えたら進行中の線分ピック・接線対象・平行/一致対象を破棄する
