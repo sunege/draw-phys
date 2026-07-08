@@ -77,7 +77,7 @@ describe('電磁気プラグイン スモークテスト', () => {
   }
 
   it('2端子記号は端点編集が往復で整合する', () => {
-    const twoTerminal = [resistorPlugin, capacitorPlugin, inductorPlugin, ammeterPlugin];
+    const twoTerminal: AnyPlugin[] = [resistorPlugin, capacitorPlugin, inductorPlugin, ammeterPlugin];
     for (const plugin of twoTerminal) {
       const a = { x: -30, y: 0 };
       const b = { x: 70, y: 0 };
