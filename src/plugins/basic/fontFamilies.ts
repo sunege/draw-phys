@@ -17,7 +17,7 @@ const FONT_FAMILY_STACKS: Record<FontFamilyKey, string> = {
   mono: "'SF Mono', 'Cascadia Code', 'Consolas', 'Noto Sans Mono CJK JP', monospace",
 };
 
-export const DEFAULT_FONT_FAMILY: FontFamilyKey = 'sans';
+export const DEFAULT_FONT_FAMILY: FontFamilyKey = 'serif';
 
 /** 未知の値(旧データ等)は既定のゴシック体スタックにフォールバックする */
 export function resolveFontFamily(key: string | undefined): string {
