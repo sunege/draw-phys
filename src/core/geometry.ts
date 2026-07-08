@@ -127,6 +127,26 @@ export function normalizeAngle180(deg: number): number {
   return x > 180 ? x - 360 : x;
 }
 
+/** 点 p を、a・b を通る直線に関して反射した点を返す(ミラー機能の基礎) */
+export function reflectPoint(p: Point, a: Point, b: Point): Point {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  // 軸が退化(2点が同じ)なら点対称にフォールバック
+  if (len2 < 1e-9) return { x: 2 * a.x - p.x, y: 2 * a.y - p.y };
+  const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+  const proj = { x: a.x + t * dx, y: a.y + t * dy };
+  return { x: 2 * proj.x - p.x, y: 2 * proj.y - p.y };
+}
+
+/**
+ * 内部回転(画面時計回り正)を、軸角 axisAngle(度・画面慣習=angleOfVector)に対して
+ * 反転した内部回転へ変換する。反射行列 F(α)·R(θ) = R(2α−θ)·diag(1,−1) の回転成分。
+ */
+export function reflectAngle(rotation: number, axisAngle: number): number {
+  return normalizeAngle180(2 * axisAngle - rotation);
+}
+
 export function snapValue(value: number, gridSize: number): number {
   return Math.round(value / gridSize) * gridSize;
 }

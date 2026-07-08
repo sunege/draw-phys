@@ -1,15 +1,25 @@
 import {
-  PATTERN_LINE_WIDTH as LINE_WIDTH,
-  PATTERN_SPACING as SPACING,
+  PATTERN_SIZES,
   patternId,
+  resolvePatternSize,
   type FillPattern,
   type PatternFillProps,
 } from './fillPattern';
 
-function PatternShapes({ pattern, stroke }: { pattern: FillPattern; stroke: string }) {
-  const s = SPACING;
+function PatternShapes({
+  pattern,
+  stroke,
+  spacing,
+  lineWidth,
+}: {
+  pattern: FillPattern;
+  stroke: string;
+  spacing: number;
+  lineWidth: number;
+}) {
+  const s = spacing;
   const line = (x1: number, y1: number, x2: number, y2: number) => (
-    <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={stroke} strokeWidth={LINE_WIDTH} />
+    <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={stroke} strokeWidth={lineWidth} />
   );
   switch (pattern) {
     case 'hatch':
@@ -28,7 +38,7 @@ function PatternShapes({ pattern, stroke }: { pattern: FillPattern; stroke: stri
     case 'vertical':
       return line(s / 2, 0, s / 2, s);
     case 'dots':
-      return <circle cx={s / 2} cy={s / 2} r={LINE_WIDTH * 1.3} fill={stroke} />;
+      return <circle cx={s / 2} cy={s / 2} r={lineWidth * 1.3} fill={stroke} />;
     default:
       return null;
   }
@@ -42,12 +52,14 @@ function PatternShapes({ pattern, stroke }: { pattern: FillPattern; stroke: stri
 export function PatternDefs({ props }: { props: PatternFillProps }) {
   const pattern = props.fillPattern ?? 'none';
   if (pattern === 'none') return null;
-  const id = patternId(pattern, props.fill, props.stroke);
+  const size = resolvePatternSize(props);
+  const { spacing, lineWidth } = PATTERN_SIZES[size];
+  const id = patternId(pattern, props.fill, props.stroke, size);
   return (
     <defs>
-      <pattern id={id} width={SPACING} height={SPACING} patternUnits="userSpaceOnUse">
-        <rect width={SPACING} height={SPACING} fill={props.fill} />
-        <PatternShapes pattern={pattern} stroke={props.stroke} />
+      <pattern id={id} width={spacing} height={spacing} patternUnits="userSpaceOnUse">
+        <rect width={spacing} height={spacing} fill={props.fill} />
+        <PatternShapes pattern={pattern} stroke={props.stroke} spacing={spacing} lineWidth={lineWidth} />
       </pattern>
     </defs>
   );

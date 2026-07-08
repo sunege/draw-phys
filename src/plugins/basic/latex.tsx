@@ -1,4 +1,5 @@
 import katex from 'katex';
+import { mirrorKeepUpright } from '../../core/mirror';
 import type { PhysicsObjectPlugin } from '../../core/plugin';
 import type { Rect } from '../../core/types';
 import { areKatexFontsReady, registerKatexMeasureCache } from './katexFonts';
@@ -186,6 +187,8 @@ export const latexPlugin: PhysicsObjectPlugin<LatexProps> = {
   applyScale: (props, fx) => ({ ...props, fontSize: props.fontSize * fx }),
   capabilities: { rotatable: true, scalable: 'uniform' },
   placement: 'click',
+  // 鏡像は位置だけ反射し、数式は読める向きのまま
+  mirror: mirrorKeepUpright,
   exportStyles: buildKatexExportCss,
   PanelExtra: ({ objectId }) => <EditorOpenButton objectId={objectId} />,
   EditorModal: ({ objectId, onClose }) => (

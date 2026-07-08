@@ -5,9 +5,11 @@ import { centerDefaults, centerFields } from './centerFields';
 import {
   fillOpacityField,
   fillPatternField,
+  patternSizeField,
   resolveFill,
   resolveFillOpacity,
   type FillPattern,
+  type PatternSize,
 } from './fillPattern';
 import { dashArray, lineStyleField, type LineStyle } from './lineUtils';
 
@@ -19,6 +21,7 @@ interface RectProps {
   strokeWidth: number;
   lineStyle: LineStyle;
   fillPattern: FillPattern;
+  patternSize: PatternSize;
   fillOpacity: number;
   showCenter: boolean;
   centerStyle: 'cross' | 'dot';
@@ -43,6 +46,7 @@ export const rectPlugin: PhysicsObjectPlugin<RectProps> = {
     strokeWidth: 1,
     lineStyle: 'solid',
     fillPattern: 'none',
+    patternSize: 'medium',
     fillOpacity: 0,
     ...centerDefaults,
   },
@@ -56,6 +60,7 @@ export const rectPlugin: PhysicsObjectPlugin<RectProps> = {
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0, step: 0.5 },
     lineStyleField,
     fillPatternField,
+    patternSizeField,
     ...centerFields,
   ],
   Renderer: ({ props }) => (

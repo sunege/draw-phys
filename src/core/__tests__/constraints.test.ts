@@ -450,3 +450,50 @@ describe('一致/接続(role: coincident)', () => {
     expect(solved.d.transform.y).toBeCloseTo(100);
   });
 });
+
+describe('対称拘束(role: symmetric)', () => {
+  // ax(test.seg, 中心100,0)の線分は世界(50,0)-(150,0)=直線 y=0 を対称軸にする
+  function symRefs(sourceId: string, axisId: string) {
+    return [
+      { role: 'symmetric', targetId: sourceId, kind: 'object' as const },
+      { role: 'symmetricAxis', targetId: axisId, kind: 'segment' as const, segIndex: 0 },
+    ];
+  }
+
+  it('基準オブジェクトの、対称軸(水平線 y=0)に関する鏡像になる', () => {
+    const objects: SceneObjects = {
+      ax: obj('ax', 'test.seg', 100, 0),
+      src: obj('src', 'test.snap', 30, 20, {
+        transform: { x: 30, y: 20, rotation: 10, scaleX: 1, scaleY: 1 },
+      }),
+      d: obj('d', 'test.snap', 0, 0, { refs: symRefs('src', 'ax') }),
+    };
+    const solved = solveConstraints(objects, registry);
+    // 中心(30,20)→(30,-20)、回転10°→-10°(軸0°での反転)
+    expect(solved.d.transform.x).toBeCloseTo(30);
+    expect(solved.d.transform.y).toBeCloseTo(-20);
+    expect(solved.d.transform.rotation).toBeCloseTo(-10);
+    // 元マップは不変(純粋)
+    expect(objects.d.transform.y).toBe(0);
+  });
+
+  it('基準を動かすと鏡像も常に追従する', () => {
+    const objects: SceneObjects = {
+      ax: obj('ax', 'test.seg', 100, 0),
+      src: obj('src', 'test.snap', 30, 50),
+      d: obj('d', 'test.snap', 0, 0, { refs: symRefs('src', 'ax') }),
+    };
+    const solved = solveConstraints(objects, registry);
+    expect(solved.d.transform.y).toBeCloseTo(-50);
+  });
+
+  it('基準が欠損していれば自分の状態を保つ', () => {
+    const objects: SceneObjects = {
+      ax: obj('ax', 'test.seg', 100, 0),
+      d: obj('d', 'test.snap', 7, 8, { refs: symRefs('missing', 'ax') }),
+    };
+    const solved = solveConstraints(objects, registry);
+    expect(solved.d.transform.x).toBeCloseTo(7);
+    expect(solved.d.transform.y).toBeCloseTo(8);
+  });
+});

@@ -215,4 +215,6 @@ export const pageFramePlugin: PhysicsObjectPlugin<PageFrameProps> = {
   // 用紙は印刷範囲を軸平行に保つため回転不可。サイズは自由変更可
   capabilities: { rotatable: false, scalable: 'both', printFrame: true },
   placement: 'click',
+  // 用紙は大きいので、クリック点を左上に合わせると位置決めしやすい
+  placeAnchor: 'top-left',
 };

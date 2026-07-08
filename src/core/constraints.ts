@@ -1,5 +1,6 @@
 import type { SceneObject, SceneObjects } from './document';
 import { angleOfVector, distance, localToWorld, pointOnCircleAtAngle, rectCorners } from './geometry';
+import { mirrorObject } from './mirror';
 import type { AnyPlugin, ResolvedRef } from './plugin';
 import type { PluginRegistry } from './registry';
 import type { ObjectRef, Point } from './types';
@@ -153,6 +154,26 @@ function solveInto(objs: SceneObjects, registry: PluginRegistry): void {
   for (const id of order) {
     const obj = objs[id];
     if (!obj?.refs?.length) continue;
+
+    // 対称拘束: 自オブジェクト全体を、基準オブジェクトの「対称軸に関する鏡像」に保つ。
+    // 基準は既に依存順で解決済み(トポロジカル順)なので、その現在状態を鏡像化して丸ごと上書きする。
+    const symmetric = obj.refs.find((r) => r.role === 'symmetric');
+    if (symmetric) {
+      const source = objs[symmetric.targetId];
+      const axisRef = obj.refs.find((r) => r.role === 'symmetricAxis');
+      const axis = axisRef ? resolveRef(axisRef, objs, registry) : null;
+      const sourcePlugin = source ? registry.get(source.pluginId) : undefined;
+      // 基準・軸・プラグインが揃わない(欠損)場合はスキップ=自分を保つ
+      if (source && sourcePlugin && axis?.tangent) {
+        const a = axis.point;
+        const b = { x: a.x + axis.tangent.x, y: a.y + axis.tangent.y };
+        const m = mirrorObject(source, sourcePlugin, a, b);
+        // 箱型の鏡像は基準の props を共有参照で返すため、必ずクローンしてから代入する
+        obj.props = { ...m.props };
+        obj.transform = m.transform;
+      }
+      continue;
+    }
 
     // 本体が直接解く汎用拘束(プラグイン種別を問わない)。回転(平行)と位置(一致)は
     // それぞれ別の成分に作用するため、両方あれば合成できる。

@@ -16,7 +16,9 @@ export const TANGENT_TOOL = 'tangent';
 export const PARALLEL_TOOL = 'parallel';
 export const PERPENDICULAR_TOOL = 'perpendicular';
 export const COINCIDENT_TOOL = 'coincident';
+export const SYMMETRY_TOOL = 'symmetry';
 export const TRIM_TOOL = 'trim';
+export const MIRROR_TOOL = 'mirror';
 export const GRAPH_RANGE_TOOL = 'graphRange';
 
 export const OPERATION_TOOLS: OperationTool[] = [
@@ -30,6 +32,27 @@ export const OPERATION_TOOLS: OperationTool[] = [
         <circle cx="7" cy="17" r="2.4" fill="none" stroke="currentColor" strokeWidth="1.6" />
         <line x1="8.9" y1="8.4" x2="20" y2="18" stroke="currentColor" strokeWidth="1.6" />
         <line x1="8.9" y1="15.6" x2="20" y2="6" stroke="currentColor" strokeWidth="1.6" />
+      </svg>
+    ),
+  },
+  {
+    id: MIRROR_TOOL,
+    name: 'ミラー',
+    category: '編集',
+    Icon: () => (
+      <svg width="20" height="20" viewBox="0 0 24 24">
+        <line
+          x1="12"
+          y1="3"
+          x2="12"
+          y2="21"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeDasharray="2.5 2"
+        />
+        {/* 左=元, 右=鏡像コピー */}
+        <path d="M9 6 L3 12 L9 18 Z" fill="currentColor" />
+        <path d="M15 6 L21 12 L15 18 Z" fill="none" stroke="currentColor" strokeWidth="1.6" />
       </svg>
     ),
   },
@@ -105,6 +128,27 @@ export const OPERATION_TOOLS: OperationTool[] = [
         <circle cx="9" cy="12" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
         <circle cx="15" cy="12" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
         <circle cx="12" cy="12" r="2.2" fill="currentColor" />
+      </svg>
+    ),
+  },
+  {
+    id: SYMMETRY_TOOL,
+    name: '対称',
+    category: '拘束',
+    Icon: () => (
+      <svg width="20" height="20" viewBox="0 0 24 24">
+        <line
+          x1="12"
+          y1="3"
+          x2="12"
+          y2="21"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeDasharray="2.5 2"
+        />
+        {/* 軸をはさんで常に対称に連動する2つの図形 */}
+        <path d="M9 6 L3 12 L9 18 Z" fill="none" stroke="currentColor" strokeWidth="1.6" />
+        <path d="M15 6 L21 12 L15 18 Z" fill="none" stroke="currentColor" strokeWidth="1.6" />
       </svg>
     ),
   },

@@ -260,6 +260,17 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
   /** 配置操作の種別(省略時は click) */
   placement?: PlacementMode;
   /**
+   * クリック配置時に、クリック点を図形のどこに合わせるか(省略時は中心)。
+   * 'top-left' は用紙枠のように左上を基準に置きたい大きな図形向け。
+   */
+  placeAnchor?: 'center' | 'top-left';
+  /**
+   * 対称軸(ワールド座標の2点 a・b を通る直線)に関する鏡像を返す(任意)。
+   * 未定義なら本体が「端点系→端点反射／箱型→中心反射＋回転」で自動生成する。
+   * 円弧のように手性を props で持つ図形や、文字のように内容を反転させたくない図形が実装する。
+   */
+  mirror?(props: P, transform: Transform, a: Point, b: Point): { props: P; transform: Transform };
+  /**
    * ドラッグ配置(drag-line / drag-rect)時に、始点と終点から
    * 初期プロパティとtransformを決める。placementがドラッグ系の場合は必須。
    */

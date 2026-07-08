@@ -3,9 +3,11 @@ import { blockArrowHeight, blockArrowPointsAttr } from './blockArrowMath';
 import {
   fillOpacityField,
   fillPatternField,
+  patternSizeField,
   resolveFill,
   resolveFillOpacity,
   type FillPattern,
+  type PatternSize,
 } from './fillPattern';
 import { PatternDefs } from './PatternDefs';
 import {
@@ -29,6 +31,7 @@ interface BlockArrowProps {
   fill: string;
   fillOpacity: number;
   fillPattern: FillPattern;
+  patternSize: PatternSize;
   stroke: string;
   strokeWidth: number;
   lineStyle: LineStyle;
@@ -61,6 +64,7 @@ export const blockArrowPlugin: PhysicsObjectPlugin<BlockArrowProps> = {
     fill: '#ffffff',
     fillOpacity: 0,
     fillPattern: 'none',
+    patternSize: 'medium',
     stroke: '#000000',
     strokeWidth: 1,
     lineStyle: 'solid',
@@ -78,6 +82,7 @@ export const blockArrowPlugin: PhysicsObjectPlugin<BlockArrowProps> = {
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0.5, step: 0.5 },
     lineStyleField,
     fillPatternField,
+    patternSizeField,
   ],
   Renderer: ({ props }) => (
     <g>

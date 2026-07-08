@@ -5,9 +5,11 @@ import { PatternDefs } from '../basic/PatternDefs';
 import {
   fillOpacityField,
   fillPatternField,
+  patternSizeField,
   resolveFill,
   resolveFillOpacity,
   type FillPattern,
+  type PatternSize,
 } from '../basic/fillPattern';
 import { dashArray, lineStyleField, type LineStyle } from '../basic/lineUtils';
 import {
@@ -33,6 +35,7 @@ interface BlockProps extends LabelDecoProps {
   labelLatex: string;
   fontSize: number;
   fillPattern: FillPattern;
+  patternSize: PatternSize;
   fillOpacity: number;
 }
 
@@ -67,6 +70,7 @@ export const blockPlugin: PhysicsObjectPlugin<BlockProps> = {
     labelLatex: 'm',
     fontSize: 12,
     fillPattern: 'none',
+    patternSize: 'medium',
     fillOpacity: 0,
     ...labelDecoDefaults,
   },
@@ -80,6 +84,7 @@ export const blockPlugin: PhysicsObjectPlugin<BlockProps> = {
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0, step: 0.5 },
     lineStyleField,
     fillPatternField,
+    patternSizeField,
     {
       key: 'labelMode',
       label: 'ラベル',

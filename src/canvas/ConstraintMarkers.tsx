@@ -141,6 +141,49 @@ function TangentGlyph({
   );
 }
 
+/**
+ * 対称拘束を表すマーク。対称軸方向に沿って、軸をはさむ2つの三角形を描く。
+ * data-constraint 付きでクリック可能(拘束へアクセスする)。
+ */
+function SymmetryGlyph({
+  at,
+  angle,
+  zoom,
+  objectId,
+}: {
+  at: Point;
+  angle: number;
+  zoom: number;
+  objectId: string;
+}) {
+  const s = 6 / zoom;
+  const sw = 1.8 / zoom;
+  return (
+    <g
+      data-constraint={objectId}
+      data-constraint-role="symmetric"
+      transform={`translate(${at.x} ${at.y}) rotate(${angle})`}
+      style={{ cursor: 'pointer' }}
+    >
+      {/* クリック当たり判定を広げる透明な下敷き */}
+      <rect x={-s * 1.4} y={-s * 1.3} width={s * 2.8} height={s * 2.6} fill="transparent" />
+      {/* 対称軸(破線) */}
+      <line
+        x1={-s * 1.3}
+        y1={0}
+        x2={s * 1.3}
+        y2={0}
+        stroke={COLOR}
+        strokeWidth={sw}
+        strokeDasharray={`${2 / zoom} ${1.5 / zoom}`}
+      />
+      {/* 軸をはさんで対称な2つの三角形 */}
+      <path d={`M ${-s * 0.7} ${-s} L 0 ${-s * 0.25} L ${s * 0.7} ${-s} Z`} fill="none" stroke={COLOR} strokeWidth={sw} strokeLinejoin="round" />
+      <path d={`M ${-s * 0.7} ${s} L 0 ${s * 0.25} L ${s * 0.7} ${s} Z`} fill="none" stroke={COLOR} strokeWidth={sw} strokeLinejoin="round" />
+    </g>
+  );
+}
+
 /** アクセス中の拘束に出す解除ピル(SVG内で完結・クリックでその拘束を外す) */
 function RemovePill({
   at,
@@ -228,6 +271,29 @@ export function ConstraintMarkers() {
         if (focused?.objectId === obj.id && focused.role === 'coincident') {
           markers.push(
             <RemovePill key={`${obj.id}-cp`} at={at} zoom={zoom} objectId={obj.id} role="coincident" />,
+          );
+        }
+      }
+    }
+
+    // 対称拘束: 動かす側と基準側の中点(=対称軸上)に、軸方向へ向けたマークを置く
+    const symmetric = obj.refs.find((r) => r.role === 'symmetric');
+    if (symmetric) {
+      const axisRef = obj.refs.find((r) => r.role === 'symmetricAxis');
+      const axis = axisRef ? resolveRef(axisRef, objects, pluginRegistry) : null;
+      const source = objects[symmetric.targetId];
+      if (axis?.tangent) {
+        const at = source
+          ? {
+              x: (obj.transform.x + source.transform.x) / 2,
+              y: (obj.transform.y + source.transform.y) / 2,
+            }
+          : axis.point;
+        const angle = angleOfVector(axis.tangent);
+        markers.push(<SymmetryGlyph key={`${obj.id}-s`} at={at} angle={angle} zoom={zoom} objectId={obj.id} />);
+        if (focused?.objectId === obj.id && focused.role === 'symmetric') {
+          markers.push(
+            <RemovePill key={`${obj.id}-sp`} at={at} zoom={zoom} objectId={obj.id} role="symmetric" />,
           );
         }
       }

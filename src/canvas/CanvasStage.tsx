@@ -7,6 +7,7 @@ import {
   resolveCoincidentAnchor,
 } from '../core/constraints';
 import { createSceneObject, type SceneObject } from '../core/document';
+import { mirrorObject } from '../core/mirror';
 import {
   angleOfVector,
   distance,
@@ -56,11 +57,14 @@ import {
 import {
   COINCIDENT_TOOL,
   GRAPH_RANGE_TOOL,
+  MIRROR_TOOL,
   PARALLEL_TOOL,
   PERPENDICULAR_TOOL,
+  SYMMETRY_TOOL,
   TANGENT_TOOL,
   TRIM_TOOL,
 } from './tools';
+import { KEY_TO_TOOL } from './toolShortcuts';
 import { computeTrimKeeps } from './trim';
 import { ellipseParamAngle } from './trimMath';
 import {
@@ -145,6 +149,7 @@ type DragState =
     }
   | { mode: 'marquee'; start: Point; additive: boolean }
   | { mode: 'place-line'; plugin: AnyPlugin; start: Point }
+  | { mode: 'place-rect'; plugin: AnyPlugin; start: Point }
   | {
       /** プラグイン定義のパーツハンドル(グラフの原点など)のドラッグ */
       mode: 'partDrag';
@@ -261,9 +266,11 @@ function removeConstraint(id: string, role: string): void {
   const doc = useDocumentStore.getState();
   const obj = doc.objects[id];
   if (!obj?.refs) return;
+  // 対称拘束は基準参照と対称軸参照の2本1組なので、まとめて外す
+  const drop = role === 'symmetric' ? ['symmetric', 'symmetricAxis'] : [role];
   doc.setObjectRefs(
     id,
-    obj.refs.filter((r) => r.role !== role),
+    obj.refs.filter((r) => !drop.includes(r.role)),
   );
 }
 
@@ -343,6 +350,12 @@ export function CanvasStage() {
   const [coincidentPick, setCoincidentPick] = useState<{ objId: string; localAnchor: Point } | null>(
     null,
   );
+  /** ミラーモード: 鏡像にする対象を選び終え、対称軸のピック待ちか */
+  const [mirrorArmed, setMirrorArmed] = useState(false);
+  /** 対称拘束モード: 動かす側(dep)・基準側(source)を順に選ぶ。両方揃うと対称軸ピック待ち */
+  const [symmetryPick, setSymmetryPick] = useState<{ depId: string; sourceId?: string } | null>(
+    null,
+  );
 
   const pan = useViewportStore((s) => s.pan);
   const zoom = useViewportStore((s) => s.zoom);
@@ -403,7 +416,9 @@ export function CanvasStage() {
       const key = e.key.toLowerCase();
 
       if (e.code === 'Space') {
+        // 押しっぱなしはパン用(spaceHeld)、単発はスナップON/OFF切り替え(間隔設定は保持)
         e.preventDefault();
+        if (!e.repeat) useViewportStore.getState().toggleSnap();
         setSpaceHeld(true);
       } else if (mod && key === 'z') {
         e.preventDefault();
@@ -469,10 +484,10 @@ export function CanvasStage() {
         } else {
           doc.removeObjects(doc.selection);
         }
-      } else if (key === 's' && !mod) {
-        // スナップON/OFF切り替え(間隔設定は保持)
+      } else if (!mod && !e.altKey && KEY_TO_TOOL[key]) {
+        // よく使うツールへの単一キー切替(l/v/s/c/p/a/t/m/d)
         e.preventDefault();
-        useViewportStore.getState().toggleSnap();
+        useToolStore.getState().setActiveTool(KEY_TO_TOOL[key]);
       } else if (e.key === 'Escape') {
         useToolStore.getState().setActiveTool('select');
         doc.clearSelection();
@@ -480,6 +495,8 @@ export function CanvasStage() {
         setTangentLineId(null);
         setParallelObjId(null);
         setCoincidentPick(null);
+        setMirrorArmed(false);
+        setSymmetryPick(null);
         useConstraintStore.getState().setFocused(null);
       }
     };
@@ -528,12 +545,49 @@ export function CanvasStage() {
     };
   }, []);
 
-  // ツールを切り替えたら進行中の線分ピック・接線対象・平行/一致対象を破棄する
+  // ツール切替時: 進行中の線分ピックは破棄し、拘束/ミラーは「事前選択があれば1つ目を省略して
+  // 基準ピックへ進む」よう初期化する。1つ目に使えない選択(複数/不適合)なら選択を解除して1つ目から。
   useEffect(() => {
     setSegPicks([]);
-    setTangentLineId(null);
-    setParallelObjId(null);
-    setCoincidentPick(null);
+    const doc = useDocumentStore.getState();
+    const sel = doc.selection;
+    const single = sel.length === 1 ? doc.objects[sel[0]] : undefined;
+    const singlePlugin = single ? pluginRegistry.get(single.pluginId) : undefined;
+
+    // 平行/垂直: 単一選択を「向きを変える側」として基準線ピックへ
+    const parallelInit =
+      !!single && (activeTool === PARALLEL_TOOL || activeTool === PERPENDICULAR_TOOL);
+    setParallelObjId(parallelInit ? single!.id : null);
+
+    // 接線: 単一選択が線分系(getEndpoints)なら接続元として円/円弧ピックへ
+    const tangentInit = !!single && activeTool === TANGENT_TOOL && !!singlePlugin?.getEndpoints;
+    setTangentLineId(tangentInit ? single!.id : null);
+
+    // 一致: 単一選択を動かす側とし、接続点は中心(原点)を既定に(配置後に再スナップ可)
+    const coincidentInit = !!single && activeTool === COINCIDENT_TOOL;
+    setCoincidentPick(coincidentInit ? { objId: single!.id, localAnchor: { x: 0, y: 0 } } : null);
+
+    // ミラー: 選択が1つ以上あればそのまま対称軸ピックへ(複数選択→軸の流れ)
+    const mirrorInit = activeTool === MIRROR_TOOL && sel.length > 0;
+    setMirrorArmed(mirrorInit);
+
+    // 対称: 単一選択を「動かす側」として基準オブジェクトのピックへ
+    const symmetryInit = !!single && activeTool === SYMMETRY_TOOL;
+    setSymmetryPick(symmetryInit ? { depId: single!.id } : null);
+
+    // 操作ツールで1つ目に使えない選択(複数/不適合)は解除して1つ目から選ばせる(旧来どおり)
+    const opTool =
+      activeTool === PARALLEL_TOOL ||
+      activeTool === PERPENDICULAR_TOOL ||
+      activeTool === TANGENT_TOOL ||
+      activeTool === COINCIDENT_TOOL ||
+      activeTool === SYMMETRY_TOOL ||
+      activeTool === MIRROR_TOOL ||
+      activeTool === TRIM_TOOL ||
+      activeTool === GRAPH_RANGE_TOOL;
+    if (opTool && !parallelInit && !tangentInit && !coincidentInit && !mirrorInit && !symmetryInit) {
+      doc.clearSelection();
+    }
   }, [activeTool]);
 
   // 拘束モードの操作ガイドを上部中央に表示する(ステップ進行で文言を差し替え)
@@ -558,6 +612,20 @@ export function CanvasStage() {
           ? { title: '接線', message: '接続する円・円弧をクリック' }
           : { title: '接線', message: '円・円弧をクリック（先に線・矢印・ベクトルを選ぶと接続）' },
       );
+    } else if (activeTool === MIRROR_TOOL) {
+      setHint(
+        mirrorArmed
+          ? { title: 'ミラー', message: '対称軸にする線をクリック', step: { current: 2, total: 2 } }
+          : { title: 'ミラー', message: '鏡像にするオブジェクトをクリック', step: { current: 1, total: 2 } },
+      );
+    } else if (activeTool === SYMMETRY_TOOL) {
+      setHint(
+        !symmetryPick
+          ? { title: '対称', message: '対称にする(動かす)オブジェクトをクリック', step: { current: 1, total: 3 } }
+          : !symmetryPick.sourceId
+            ? { title: '対称', message: '基準にするオブジェクトをクリック（同じ種類のみ）', step: { current: 2, total: 3 } }
+            : { title: '対称', message: '対称軸にする線をクリック', step: { current: 3, total: 3 } },
+      );
     } else if (activeTool === TRIM_TOOL) {
       setHint({ title: 'トリム', message: '切り取る線・円弧・円のエッジをクリック（Escで終了）' });
     } else if (activeTool === GRAPH_RANGE_TOOL) {
@@ -565,7 +633,7 @@ export function CanvasStage() {
     } else {
       setHint(null);
     }
-  }, [activeTool, parallelObjId, coincidentPick, tangentLineId]);
+  }, [activeTool, parallelObjId, coincidentPick, tangentLineId, mirrorArmed, symmetryPick]);
 
   // アンマウント時にヒントを片付ける
   useEffect(() => () => useHintStore.getState().clearHint(), []);
@@ -627,6 +695,99 @@ export function CanvasStage() {
     }
     // マーカー以外をクリックしたらアクセス中の拘束フォーカスを解除する
     if (useConstraintStore.getState().focused) useConstraintStore.getState().setFocused(null);
+
+    // ミラーモード: 「鏡像にするオブジェクト」→「対称軸にする線分/エッジ」の順にクリック
+    // (起動時に選択があれば1回目は省略し、いきなり軸ピックへ)
+    if (activeTool === MIRROR_TOOL) {
+      const hit = (e.target as Element).closest('[data-object-id]');
+      const hitObj = hit ? doc.objects[hit.getAttribute('data-object-id') ?? ''] : undefined;
+      if (!hitObj) return;
+      if (!mirrorArmed) {
+        // 1回目: 鏡像にする対象(グループごと)を選ぶ
+        doc.setSelection(expandWithGroups(doc.objects, [hitObj.id]));
+        setMirrorArmed(true);
+        return;
+      }
+      // 2回目: 対称軸にする線分/エッジ(getSegments を持つオブジェクト)を選ぶ
+      const pick = pickSegment(hitObj, world);
+      if (!pick) return;
+      const sources = doc.selection
+        .map((id) => doc.objects[id])
+        .filter((o): o is SceneObject => !!o && o.id !== hitObj.id && !o.locked);
+      if (sources.length > 0) {
+        const groupMap = new Map<string, string>();
+        let z = doc.nextZIndex;
+        const copies = sources.map((src) => {
+          const plugin = pluginRegistry.get(src.pluginId);
+          const m = plugin
+            ? mirrorObject(src, plugin, pick.a, pick.b)
+            : { props: src.props, transform: src.transform };
+          let groupId = src.groupId;
+          if (groupId) {
+            if (!groupMap.has(groupId)) groupMap.set(groupId, crypto.randomUUID());
+            groupId = groupMap.get(groupId);
+          }
+          return {
+            ...structuredClone(src),
+            id: crypto.randomUUID(),
+            groupId,
+            zIndex: z++,
+            // 拘束(refs)は元を指すため破棄し、素の図形として複製する
+            refs: undefined,
+            // 箱型/文字の鏡像は元 props を共有で返すため、複製側は必ずクローンする
+            props: structuredClone(m.props),
+            transform: { ...m.transform },
+          };
+        });
+        doc.addObjects(copies);
+      }
+      setMirrorArmed(false);
+      useToolStore.getState().setActiveTool('select');
+      return;
+    }
+
+    // 対称拘束モード: 「動かすオブジェクト」→「基準オブジェクト(同種)」→「対称軸の線」の順にクリック
+    if (activeTool === SYMMETRY_TOOL) {
+      const hit = (e.target as Element).closest('[data-object-id]');
+      const hitObj = hit ? doc.objects[hit.getAttribute('data-object-id') ?? ''] : undefined;
+      if (!hitObj) return;
+      if (!symmetryPick) {
+        // 1回目: 対称にする(=基準の鏡像へ動かす)側
+        setSymmetryPick({ depId: hitObj.id });
+        doc.setSelection([hitObj.id]);
+        return;
+      }
+      if (!symmetryPick.sourceId) {
+        // 2回目: 基準側。動かす側と同じ種類(pluginId)かつ別オブジェクトのみ選べる
+        const dep = doc.objects[symmetryPick.depId];
+        if (!dep) {
+          setSymmetryPick(null);
+          return;
+        }
+        if (hitObj.id === symmetryPick.depId || hitObj.pluginId !== dep.pluginId) return;
+        setSymmetryPick({ depId: symmetryPick.depId, sourceId: hitObj.id });
+        return;
+      }
+      // 3回目: 対称軸にする線分/エッジ(動かす側自身は軸にできない=自己参照回避)
+      if (hitObj.id === symmetryPick.depId) return;
+      const pick = pickSegment(hitObj, world);
+      if (!pick) return;
+      const dep = doc.objects[symmetryPick.depId];
+      if (!dep) {
+        setSymmetryPick(null);
+        return;
+      }
+      const others = dep.refs?.filter((r) => r.role !== 'symmetric' && r.role !== 'symmetricAxis') ?? [];
+      doc.setObjectRefs(symmetryPick.depId, [
+        ...others,
+        { role: 'symmetric', targetId: symmetryPick.sourceId, kind: 'object' },
+        { role: 'symmetricAxis', targetId: pick.targetId, kind: 'segment', segIndex: pick.segIndex },
+      ]);
+      doc.setSelection([symmetryPick.depId]);
+      setSymmetryPick(null);
+      useToolStore.getState().setActiveTool('select');
+      return;
+    }
 
     // 平行/垂直拘束モード: 「向きを変えるオブジェクト」→「基準の線分/エッジ」の順にクリック
     if (activeTool === PARALLEL_TOOL || activeTool === PERPENDICULAR_TOOL) {
@@ -818,8 +979,17 @@ export function CanvasStage() {
         // ドラッグで始点→終点を決める。確定はpointerupで行う
         dragRef.current = { mode: 'place-line', plugin, start: position };
         setPreview({ plugin, ...plugin.createFromDrag(position, position) });
+      } else if (plugin.placement === 'drag-rect' && plugin.createFromDrag) {
+        // ドラッグで枠(矩形)の大きさを決める。確定はpointerupで行う
+        dragRef.current = { mode: 'place-rect', plugin, start: position };
+        setPreview({ plugin, ...plugin.createFromDrag(position, position) });
       } else {
         const created = createSceneObject(plugin, position, doc.nextZIndex);
+        // 左上基準の配置(用紙枠など): クリック点を図形の左上角に合わせる
+        if (plugin.placeAnchor === 'top-left') {
+          const b = plugin.getBounds(created.props);
+          created.transform = { ...created.transform, x: position.x - b.x, y: position.y - b.y };
+        }
         doc.addObject(created);
         useToolStore.getState().setActiveTool('select');
         // 文章系オブジェクトは配置直後に大型エディタを開く
@@ -837,7 +1007,17 @@ export function CanvasStage() {
       const obj = doc.objects[doc.selection[0]];
       const plugin = obj ? pluginRegistry.get(obj.pluginId) : undefined;
       if (obj && plugin) {
-        if (handleKind === 'rotate') {
+        if (handleKind === 'move') {
+          // 移動ハンドル: 本体ドラッグと同じ move モードで選択オブジェクトを動かす
+          if (!obj.locked) {
+            const before: Record<string, Transform> = { [obj.id]: obj.transform };
+            // 接線拘束された線を動かすときはマスター円も一緒に動かす
+            const cref = obj.refs?.find((r) => r.kind === 'circle');
+            const target = cref ? doc.objects[cref.targetId] : undefined;
+            if (target && !target.locked) before[cref!.targetId] = target.transform;
+            dragRef.current = { mode: 'move', hitId: obj.id, startWorld: world, before, moved: false };
+          }
+        } else if (handleKind === 'rotate') {
           // 回転軸: 既に置いた軸があればそれ、無ければ中心。触れた時点で赤マーカーを表示
           const pivot =
             rotatePivot?.id === obj.id
@@ -1318,7 +1498,7 @@ export function CanvasStage() {
       return;
     }
 
-    if (drag.mode === 'place-line' && drag.plugin.createFromDrag) {
+    if ((drag.mode === 'place-line' || drag.mode === 'place-rect') && drag.plugin.createFromDrag) {
       const end = snapEnabled ? snapPoint(world, gridSize) : world;
       setPreview({ plugin: drag.plugin, ...drag.plugin.createFromDrag(drag.start, end) });
     }
@@ -1370,7 +1550,10 @@ export function CanvasStage() {
         ...(hasCo ? { refs: drag.endpointPin.beforeRefs } : {}),
       });
     } else if (drag.mode === 'endpoint' && drag.moved) {
-      // applyRefs対応(長さマーク等)が対象へ吸着していれば、追従バインドを作成
+      // applyRefs対応(長さマーク等)が対象へ吸着していれば、追従バインドを作成。
+      // ただし接線可能な線分系(dragEndpointConstrained有り=線・矢印・ベクトル)は除外する。
+      // これらの applyRefs は接線ツール専用(role:'anchor')で、端点スナップだけで
+      // kind:'circle' の参照を付けると誤って接線拘束扱い(端点が固定される)になるため。
       const { snapEnabled, zoom, snapStep } = useViewportStore.getState();
       const gridSize = snapStep();
       const snapped = snapEndpoint({
@@ -1382,7 +1565,7 @@ export function CanvasStage() {
         gridSize,
         threshold: 8 / zoom,
       });
-      if (drag.plugin.applyRefs && snapped.attach) {
+      if (drag.plugin.applyRefs && !drag.plugin.dragEndpointConstrained && snapped.attach) {
         doc.setObjectRefs(drag.id, attachToRefs(snapped.attach));
         // 測定対象と重ならないよう、既定の平行オフセットを与える(長さマーク等)
         const bound = doc.objects[drag.id];
@@ -1479,7 +1662,10 @@ export function CanvasStage() {
         );
       }
       setMarquee(null);
-    } else if (drag.mode === 'place-line' && drag.plugin.createFromDrag) {
+    } else if (
+      (drag.mode === 'place-line' || drag.mode === 'place-rect') &&
+      drag.plugin.createFromDrag
+    ) {
       const { snapEnabled, snapStep } = useViewportStore.getState();
       const gridSize = snapStep();
       const world = worldFromEvent(e);

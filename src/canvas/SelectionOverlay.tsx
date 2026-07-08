@@ -27,6 +27,33 @@ function cursorFor(dir: HandleDir): string {
   return dir.sx === dir.sy ? 'nwse-resize' : 'nesw-resize';
 }
 
+/**
+ * 移動用ハンドル(四方向矢印)。選択枠の中央に置き、細い線などカーソルを
+ * 本体に合わせにくいオブジェクトでもドラッグ移動できるようにする。
+ */
+function MoveHandle({ cx, cy, zoom }: { cx: number; cy: number; zoom: number }) {
+  const r = 8.5 / zoom;
+  const p = 6 / zoom; // 矢先までの距離
+  const t = 3 / zoom; // 矢先の長さ
+  const w = 2.6 / zoom; // 矢先の半幅
+  const arrows = [
+    `${cx},${cy - p} ${cx - w},${cy - p + t} ${cx + w},${cy - p + t}`, // 上
+    `${cx},${cy + p} ${cx - w},${cy + p - t} ${cx + w},${cy + p - t}`, // 下
+    `${cx - p},${cy} ${cx - p + t},${cy - w} ${cx - p + t},${cy + w}`, // 左
+    `${cx + p},${cy} ${cx + p - t},${cy - w} ${cx + p - t},${cy + w}`, // 右
+  ];
+  return (
+    <g data-handle="move" style={{ cursor: 'move' }}>
+      <circle cx={cx} cy={cy} r={r} fill={STROKE} stroke="#ffffff" strokeWidth={1.5 / zoom} />
+      <line x1={cx - t} y1={cy} x2={cx + t} y2={cy} stroke="#ffffff" strokeWidth={1 / zoom} />
+      <line x1={cx} y1={cy - t} x2={cx} y2={cy + t} stroke="#ffffff" strokeWidth={1 / zoom} />
+      {arrows.map((points) => (
+        <polygon key={points} points={points} fill="#ffffff" />
+      ))}
+    </g>
+  );
+}
+
 /** スケール適用後のローカルバウンディングボックス(負のスケールも正規化) */
 function scaledBounds(bounds: Rect, scaleX: number, scaleY: number): Rect {
   const x1 = bounds.x * scaleX;
@@ -72,6 +99,10 @@ function SingleSelection({ obj, zoom }: { obj: SceneObject; zoom: number }) {
         strokeWidth={1.5 / zoom}
         pointerEvents="none"
       />
+      {/* 移動ハンドル。小さい図形でも隠れないよう枠の少し下(外側)に置く */}
+      {!obj.locked && (
+        <MoveHandle cx={centerX} cy={box.y + box.height + 22 / zoom} zoom={zoom} />
+      )}
       {rotatable && (
         <>
           <line

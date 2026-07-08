@@ -48,6 +48,10 @@ export function SourceEditorModal({
   }
   const [draft, setDraft] = useState(() => (obj ? config.getDraft(obj.props) : ''));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // textarea内でドラッグ選択しマウスがbackdropへ出てからボタンを離すと、
+  // click イベントは mousedown/mouseup の共通祖先=backdrop で発火する。
+  // mousedown自体がbackdrop直上で始まった場合のみ「外側クリック」として保存扱いにする。
+  const mouseDownOnBackdropRef = useRef(false);
 
   useEffect(() => {
     textareaRef.current?.focus();
@@ -90,8 +94,14 @@ export function SourceEditorModal({
   return (
     <div
       className={styles.backdrop}
-      // 編集内容を失わないよう、backdropクリックは保存扱いにする
-      onClick={save}
+      onMouseDown={(e) => {
+        mouseDownOnBackdropRef.current = e.target === e.currentTarget;
+      }}
+      // 編集内容を失わないよう、backdropクリックは保存扱いにする(textarea内のドラッグ選択が
+      // backdropまではみ出して終わるケースは除く)
+      onClick={(e) => {
+        if (mouseDownOnBackdropRef.current && e.target === e.currentTarget) save();
+      }}
       // CanvasStageのwindowショートカット(Ctrl+Z等)へキー入力が届かないようにする
       onKeyDown={(e) => {
         if (e.key === 'Escape') cancel();

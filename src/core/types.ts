@@ -43,12 +43,16 @@ export interface ObjectRef {
    * - 'parallel'      自オブジェクトの回転を基準線分と平行に保つ(angleOffset 0/180)
    * - 'perpendicular' 自オブジェクトの回転を基準線分と垂直に保つ(angleOffset ±90)
    * - 'coincident'    自オブジェクトの局所アンカーを基準点に一致させ追従させる(一致/接続)
+   * - 'symmetric'     自オブジェクト全体を基準オブジェクト(kind:'object')の鏡像に保つ。
+   *                   対称軸は同オブジェクトの 'symmetricAxis'(kind:'segment')で指定する。
+   *                   基準と同じ種類(pluginId)のときのみ張れる。
+   * - 'symmetricAxis' 'symmetric' の対称軸(線分)。単独では意味を持たない。
    */
   role: string;
   /** 参照先オブジェクトID */
   targetId: string;
-  /** segment: 線分 / circle: 円周 / point: 対象のスナップ点 */
-  kind: 'segment' | 'circle' | 'point';
+  /** segment: 線分 / circle: 円周 / point: 対象のスナップ点 / object: 対象オブジェクト全体 */
+  kind: 'segment' | 'circle' | 'point' | 'object';
   /** segment: 線分パラメタ[0,1] / circle: 角度(度, 対象ローカル基準) */
   t?: number;
   /** 複数線分を持つ対象での辺インデックス */

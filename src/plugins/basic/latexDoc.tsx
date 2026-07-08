@@ -1,3 +1,4 @@
+import { mirrorKeepUpright } from '../../core/mirror';
 import type { PhysicsObjectPlugin } from '../../core/plugin';
 import { DEFAULT_FONT_FAMILY, FONT_FAMILY_OPTIONS } from './fontFamilies';
 import { buildKatexExportCss } from './latex';
@@ -161,12 +162,42 @@ export const latexDocPlugin: PhysicsObjectPlugin<LatexDocProps> = {
     };
   },
   capabilities: { rotatable: true, scalable: 'both' },
-  placement: 'click',
+  // 鏡像は位置だけ反射し、文章は読める向きのまま
+  mirror: mirrorKeepUpright,
+  // ドラッグで枠サイズを決めてから配置する(クリックのみのときは既定サイズで置く)
+  placement: 'drag-rect',
+  createFromDrag(start, end) {
+    const w = Math.abs(end.x - start.x);
+    const h = Math.abs(end.y - start.y);
+    // ドラッグがごく小さい(クリックのみ)場合は既定サイズを左上基準で置く
+    if (w < MIN_WIDTH || h < MIN_HEIGHT) {
+      const { width, height } = this.defaultProps;
+      return {
+        props: { ...this.defaultProps },
+        transform: {
+          x: start.x + width / 2,
+          y: start.y + height / 2,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+        },
+      };
+    }
+    return {
+      props: { ...this.defaultProps, width: w, height: h },
+      transform: {
+        x: (start.x + end.x) / 2,
+        y: (start.y + end.y) / 2,
+        rotation: 0,
+        scaleX: 1,
+        scaleY: 1,
+      },
+    };
+  },
   exportStyles: buildKatexExportCss,
   PanelExtra: ({ objectId }) => <EditorOpenButton objectId={objectId} />,
   EditorModal: ({ objectId, onClose }) => (
     <SourceEditorModal objectId={objectId} onClose={onClose} config={editorConfig} />
   ),
-  // 文章オブジェクトはデフォルト文のまま置く意味がないため、配置直後にエディタを開く
-  openEditorOnCreate: true,
+  // 配置直後はエディタを開かない。編集はプロパティパネルの編集ボタンから任意で開く
 };

@@ -6,16 +6,81 @@
   border-right: 1px solid #dde1e7;
 }
 
+.search {
+  margin-bottom: 12px;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: #1f2937;
+  background: #f3f4f6;
+  border: 1px solid #dde1e7;
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+
+.searchInput:focus {
+  outline: none;
+  background: #ffffff;
+  border-color: #2b7de9;
+}
+
+.empty {
+  margin: 4px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
 .section {
   margin-bottom: 12px;
 }
 
 .heading {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
   margin: 0 0 4px;
-  padding: 0 4px;
+  padding: 2px 4px;
   font-size: 11px;
   font-weight: 600;
   color: #6b7280;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+  text-transform: none;
+}
+
+.heading:hover {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.chevron {
+  display: inline-block;
+  font-size: 9px;
+  line-height: 1;
+  color: #9ca3af;
+  transform: rotate(-90deg);
+  transition: transform 0.12s ease;
+}
+
+.chevron[data-open='true'] {
+  transform: rotate(0deg);
+}
+
+.headingText {
+  flex: 1;
+}
+
+.count {
+  font-size: 10px;
+  font-weight: 500;
+  color: #9ca3af;
 }
 
 .tool,
@@ -47,4 +112,10 @@
 .tool svg,
 .toolActive svg {
   flex-shrink: 0;
+}
+
+.shortcutHint {
+  margin-left: 4px;
+  font-size: 11px;
+  color: #9ca3af;
 }

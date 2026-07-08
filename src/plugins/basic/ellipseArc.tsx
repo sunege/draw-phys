@@ -1,4 +1,10 @@
-import { normalizeAngle180, normalizeAngle360 } from '../../core/geometry';
+import {
+  angleOfVector,
+  normalizeAngle180,
+  normalizeAngle360,
+  reflectAngle,
+  reflectPoint,
+} from '../../core/geometry';
 import type { PhysicsObjectPlugin, TrimPiece } from '../../core/plugin';
 import { isFullArc, sweepDelta } from './arc';
 import { CenterMark } from './CenterMark';
@@ -117,6 +123,15 @@ export const ellipseArcPlugin: PhysicsObjectPlugin<EllipseArcProps> = {
       });
     }
     return pieces;
+  },
+  // 鏡像: 媒介変数角を負反転(手性を反転)し、回転を軸に対して反転する。radiusX/Yは不変
+  mirror: (props, t, a, b) => {
+    const c = reflectPoint({ x: t.x, y: t.y }, a, b);
+    const axisAngle = angleOfVector({ x: b.x - a.x, y: b.y - a.y });
+    return {
+      props: { ...props, startAngle: -props.endAngle, endAngle: -props.startAngle },
+      transform: { ...t, x: c.x, y: c.y, rotation: reflectAngle(t.rotation, axisAngle) },
+    };
   },
   capabilities: { rotatable: true, scalable: 'both' },
   placement: 'click',

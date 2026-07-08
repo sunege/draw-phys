@@ -1,3 +1,4 @@
+import { mirrorKeepUpright } from '../../core/mirror';
 import type { PhysicsObjectPlugin } from '../../core/plugin';
 import type { Rect } from '../../core/types';
 import { DEFAULT_FONT_FAMILY, FONT_FAMILY_OPTIONS, resolveFontFamily } from './fontFamilies';
@@ -94,4 +95,6 @@ export const textPlugin: PhysicsObjectPlugin<TextProps> = {
   applyScale: (props, fx) => ({ ...props, fontSize: props.fontSize * fx }),
   capabilities: { rotatable: true, scalable: 'uniform' },
   placement: 'click',
+  // 鏡像は位置だけ反射し、文字は読める向きのまま(向き反転で読めなくなるのを避ける)
+  mirror: mirrorKeepUpright,
 };
