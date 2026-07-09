@@ -1,5 +1,7 @@
+import { useEffect, useRef } from 'react';
 import { fromDisplayAngle, toDisplayAngle } from '../canvas/transformMath';
 import { findRotationLock } from '../core/constraints';
+import type { SceneObject } from '../core/document';
 import type { PropertyField } from '../core/plugin';
 import { pluginRegistry } from '../core/registry';
 import {
@@ -8,6 +10,7 @@ import {
   type DistributeMode,
   type ReorderMode,
 } from '../state/documentStore';
+import { computeCommonFields } from './commonPropertyFields';
 import styles from './PropertyPanel.module.css';
 
 const ALIGN_ACTIONS: { mode: AlignMode; label: string; title: string }[] = [
@@ -195,10 +198,13 @@ function ManagedObjects() {
 function FieldInput({
   field,
   value,
+  mixed = false,
   onChange,
 }: {
   field: PropertyField;
   value: unknown;
+  /** 複数選択の一括編集で、選択オブジェクト間で値が食い違う場合 true */
+  mixed?: boolean;
   onChange: (value: unknown) => void;
 }) {
   switch (field.type) {
@@ -206,7 +212,8 @@ function FieldInput({
       return (
         <input
           type="number"
-          value={typeof value === 'number' ? value : ''}
+          value={!mixed && typeof value === 'number' ? value : ''}
+          placeholder={mixed ? '(複数の値)' : undefined}
           min={field.min}
           max={field.max}
           step={field.step}
@@ -220,7 +227,8 @@ function FieldInput({
       return (
         <input
           type="text"
-          value={typeof value === 'string' ? value : ''}
+          value={!mixed && typeof value === 'string' ? value : ''}
+          placeholder={mixed ? '(複数の値)' : undefined}
           onChange={(e) => onChange(e.target.value)}
         />
       );
@@ -228,32 +236,35 @@ function FieldInput({
       return (
         <textarea
           rows={3}
-          value={typeof value === 'string' ? value : ''}
+          value={!mixed && typeof value === 'string' ? value : ''}
+          placeholder={mixed ? '(複数の値)' : undefined}
           onChange={(e) => onChange(e.target.value)}
         />
       );
     case 'color':
       return (
-        <input
-          type="color"
-          value={typeof value === 'string' ? value : '#000000'}
-          onChange={(e) => onChange(e.target.value)}
-        />
+        <span className={styles.colorMixedWrap}>
+          <input
+            type="color"
+            value={typeof value === 'string' ? value : '#000000'}
+            onChange={(e) => onChange(e.target.value)}
+          />
+          {mixed && <span className={styles.mixedHint}>(複数の値)</span>}
+        </span>
       );
     case 'boolean':
-      return (
-        <input
-          type="checkbox"
-          checked={value === true}
-          onChange={(e) => onChange(e.target.checked)}
-        />
-      );
+      return <BooleanFieldInput checked={value === true} indeterminate={mixed} onChange={onChange} />;
     case 'select':
       return (
         <select
-          value={typeof value === 'string' ? value : ''}
+          value={mixed ? '' : typeof value === 'string' ? value : ''}
           onChange={(e) => onChange(e.target.value)}
         >
+          {mixed && (
+            <option value="" disabled hidden>
+              (複数の値)
+            </option>
+          )}
           {field.options.map((opt) => (
             <option key={opt.value} value={opt.value}>
               {opt.label}
@@ -262,6 +273,69 @@ function FieldInput({
         </select>
       );
   }
+}
+
+/** チェックボックスの「不確定」状態(indeterminate)はDOMプロパティであり属性ではないためrefで設定する */
+function BooleanFieldInput({
+  checked,
+  indeterminate,
+  onChange,
+}: {
+  checked: boolean;
+  indeterminate: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={checked}
+      onChange={(e) => onChange(e.target.checked)}
+    />
+  );
+}
+
+/** 複数選択時、選択オブジェクト間で共通するプロパティを一括編集するセクション */
+function MultiPropertyFields() {
+  const objects = useDocumentStore((s) => s.objects);
+  const selection = useDocumentStore((s) => s.selection);
+  const updatePropsMany = useDocumentStore((s) => s.updatePropsMany);
+
+  const selectedObjects = selection
+    .map((id) => objects[id])
+    .filter((o): o is SceneObject => !!o);
+  const commonFields = computeCommonFields(selectedObjects, pluginRegistry);
+  if (commonFields.length === 0) return null;
+
+  const applyToAll = (key: string, value: unknown) => {
+    const patches: Record<string, Record<string, unknown>> = {};
+    for (const obj of selectedObjects) {
+      if (obj.locked) continue;
+      patches[obj.id] = { [key]: value };
+    }
+    if (Object.keys(patches).length > 0) updatePropsMany(patches);
+  };
+
+  return (
+    <div className={styles.multiFields}>
+      <h3 className={styles.heading}>共通プロパティを一括編集</h3>
+      {commonFields.map(({ field, mixed, value }) => (
+        <label key={field.key} className={styles.field}>
+          <span className={styles.label}>{field.label}</span>
+          <FieldInput
+            field={field}
+            value={value}
+            mixed={mixed}
+            onChange={(next) => applyToAll(field.key, next)}
+          />
+        </label>
+      ))}
+    </div>
+  );
 }
 
 /** 選択オブジェクトのプラグインスキーマから自動生成されるプロパティパネル */
@@ -283,6 +357,7 @@ export function PropertyPanel() {
     return (
       <aside className={styles.panel}>
         <p className={styles.empty}>{selection.length}個のオブジェクトを選択中</p>
+        <MultiPropertyFields />
         <SelectionActions />
         <ManagedObjects />
       </aside>
