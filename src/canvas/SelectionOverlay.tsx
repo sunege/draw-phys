@@ -19,6 +19,14 @@ const HANDLES: HandleDir[] = [
   { sx: -1, sy: 0 },
 ];
 
+/** 複数選択の等比スケール用ハンドル(角のみ)。対角を固定して相似に拡大縮小する */
+const CORNER_HANDLES: HandleDir[] = [
+  { sx: -1, sy: -1 },
+  { sx: 1, sy: -1 },
+  { sx: 1, sy: 1 },
+  { sx: -1, sy: 1 },
+];
+
 const STROKE = '#2b7de9';
 
 function cursorFor(dir: HandleDir): string {
@@ -214,42 +222,74 @@ export function SelectionOverlay() {
     return <SingleSelection obj={obj} zoom={zoom} />;
   }
 
-  // 複数選択: 結合AABBの枠のみ(移動のみ対応)
+  // 複数選択: 結合AABBの枠＋角の等比スケールハンドル(移動・グループ拡大縮小に対応)
   const rects: Rect[] = [];
+  let hasScalable = false;
+  let hasMovable = false;
   for (const id of selection) {
     const obj = objects[id];
     if (!obj) continue;
     const plugin = pluginRegistry.get(obj.pluginId);
     if (!plugin) continue;
     rects.push(worldBounds(plugin.getBounds(obj.props), obj.transform));
+    if (!obj.locked) {
+      hasMovable = true;
+      if (!plugin.capabilities?.printFrame) hasScalable = true;
+    }
   }
   const union = unionRects(rects);
   if (!union) return null;
+  const handleSize = 8 / zoom;
 
   return (
-    <g pointerEvents="none">
-      {rects.map((r, i) => (
+    <g>
+      <g pointerEvents="none">
+        {rects.map((r, i) => (
+          <rect
+            key={i}
+            x={r.x}
+            y={r.y}
+            width={r.width}
+            height={r.height}
+            fill="none"
+            stroke={STROKE}
+            strokeWidth={1 / zoom}
+            strokeDasharray={`${3 / zoom} ${3 / zoom}`}
+          />
+        ))}
         <rect
-          key={i}
-          x={r.x}
-          y={r.y}
-          width={r.width}
-          height={r.height}
+          x={union.x}
+          y={union.y}
+          width={union.width}
+          height={union.height}
           fill="none"
           stroke={STROKE}
-          strokeWidth={1 / zoom}
-          strokeDasharray={`${3 / zoom} ${3 / zoom}`}
+          strokeWidth={1.5 / zoom}
         />
-      ))}
-      <rect
-        x={union.x}
-        y={union.y}
-        width={union.width}
-        height={union.height}
-        fill="none"
-        stroke={STROKE}
-        strokeWidth={1.5 / zoom}
-      />
+      </g>
+      {/* 移動ハンドル。選択枠の少し下(外側)に置き、複数オブジェクトの隙間を狙わなくても移動できるようにする */}
+      {hasMovable && (
+        <MoveHandle
+          cx={union.x + union.width / 2}
+          cy={union.y + union.height + 22 / zoom}
+          zoom={zoom}
+        />
+      )}
+      {hasScalable &&
+        CORNER_HANDLES.map((dir) => (
+          <rect
+            key={`${dir.sx},${dir.sy}`}
+            data-handle={`groupScale:${dir.sx},${dir.sy}`}
+            x={union.x + ((dir.sx + 1) / 2) * union.width - handleSize / 2}
+            y={union.y + ((dir.sy + 1) / 2) * union.height - handleSize / 2}
+            width={handleSize}
+            height={handleSize}
+            fill="#ffffff"
+            stroke={STROKE}
+            strokeWidth={1.5 / zoom}
+            style={{ cursor: cursorFor(dir) }}
+          />
+        ))}
     </g>
   );
 }

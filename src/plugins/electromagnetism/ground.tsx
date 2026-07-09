@@ -86,6 +86,14 @@ export const groundPlugin: PhysicsObjectPlugin<GroundProps> = {
     return label ? unionRects([body, label])! : body;
   },
   getSnapPoints: () => [{ x: 0, y: 0 }],
+  // グループ拡大縮小用。本体寸法とラベル文字を等比で拡大(線幅は不変)
+  applyScale: (props, fx) => ({
+    ...props,
+    width: props.width * fx,
+    height: props.height * fx,
+    stub: props.stub * fx,
+    fontSize: props.fontSize * fx,
+  }),
   moveLabel: moveLabelOffset,
   capabilities: { rotatable: true, scalable: 'none' },
   placement: 'click',

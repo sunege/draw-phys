@@ -6,7 +6,7 @@ import {
   perpendicularOffset,
   resolveCoincidentAnchor,
 } from '../core/constraints';
-import { createSceneObject, type SceneObject } from '../core/document';
+import { createSceneObject, type SceneObject, type SceneObjects } from '../core/document';
 import { mirrorObject } from '../core/mirror';
 import {
   angleOfVector,
@@ -15,6 +15,7 @@ import {
   nearestPointOnSegment,
   snapPoint,
   transformToString,
+  unionRects,
   worldBounds,
   worldToLocal,
 } from '../core/geometry';
@@ -65,6 +66,7 @@ import {
   TRIM_TOOL,
 } from './tools';
 import { KEY_TO_TOOL } from './toolShortcuts';
+import { computeGroupScaleFactor, groupScaleAnchor, scaleObjectAbout } from './groupScaleMath';
 import { computeTrimKeeps } from './trim';
 import { ellipseParamAngle } from './trimMath';
 import {
@@ -147,6 +149,18 @@ type DragState =
       plugin: AnyPlugin;
       moved: boolean;
     }
+  | {
+      /** 複数選択の等比スケール。対角(anchor)を固定し、各オブジェクトを相似に拡大縮小する */
+      mode: 'groupScale';
+      handle: HandleDir;
+      /** ドラッグ開始時の結合バウンディングボックス(ワールド軸平行) */
+      union: Rect;
+      /** 固定する不動点(つかんだ角の対角、ワールド座標) */
+      anchor: Point;
+      /** 開始時の各対象の transform / props(legacy scale は焼き込み済み) */
+      before: Record<string, { transform: Transform; props: Record<string, unknown> }>;
+      moved: boolean;
+    }
   | { mode: 'marquee'; start: Point; additive: boolean }
   | { mode: 'place-line'; plugin: AnyPlugin; start: Point }
   | { mode: 'place-rect'; plugin: AnyPlugin; start: Point }
@@ -211,6 +225,23 @@ function objectWorldBounds(obj: SceneObject): Rect | null {
   const plugin = pluginRegistry.get(obj.pluginId);
   if (!plugin) return null;
   return worldBounds(plugin.getBounds(obj.props), obj.transform);
+}
+
+/** 移動ドラッグ開始時のtransform群を集める。ロック済みは除外し、接線拘束された線はマスター円も追従させる */
+function buildMoveBefore(objects: SceneObjects, ids: string[]): Record<string, Transform> {
+  const before: Record<string, Transform> = {};
+  for (const id of ids) {
+    const obj = objects[id];
+    if (obj && !obj.locked) before[id] = obj.transform;
+  }
+  for (const id of Object.keys(before)) {
+    const cref = objects[id]?.refs?.find((r) => r.kind === 'circle');
+    const target = cref ? objects[cref.targetId] : undefined;
+    if (target && !target.locked && !(cref!.targetId in before)) {
+      before[cref!.targetId] = target.transform;
+    }
+  }
+  return before;
 }
 
 /** クリック位置に最も近い線分を選び、ワールド座標のピック情報を返す(pick-segments用) */
@@ -1003,6 +1034,59 @@ export function CanvasStage() {
     // 選択ハンドル(スケール・回転・端点)
     const handleEl = (e.target as Element).closest('[data-handle]');
     const handleKind = handleEl?.getAttribute('data-handle');
+    // 複数選択の等比スケール: 角ハンドルで結合バウンディングボックスを相似に拡大縮小する
+    if (handleKind?.startsWith('groupScale:') && doc.selection.length >= 2) {
+      const [sx, sy] = handleKind.slice('groupScale:'.length).split(',').map(Number);
+      const handle = { sx, sy } as HandleDir;
+      const rects: Rect[] = [];
+      const before: Record<string, { transform: Transform; props: Record<string, unknown> }> = {};
+      const bake: Record<string, { transform: Transform; props: Record<string, unknown> }> = {};
+      for (const id of doc.selection) {
+        const obj = doc.objects[id];
+        const plugin = obj ? pluginRegistry.get(obj.pluginId) : undefined;
+        if (!obj || !plugin) continue;
+        // 枠(handle位置)はロック・用紙枠も含めた全選択で決める(オーバーレイと一致させる)
+        rects.push(worldBounds(plugin.getBounds(obj.props), obj.transform));
+        // 対象はロック・用紙枠を除外する(用紙は実寸mm固定なので拡大縮小しない)
+        if (obj.locked || plugin.capabilities?.printFrame) continue;
+        let transform = obj.transform;
+        let props = obj.props;
+        // applyScale対応は常に scale=1。旧データにscaleが残っていれば props へ焼き込む
+        if (plugin.applyScale && (transform.scaleX !== 1 || transform.scaleY !== 1)) {
+          props = plugin.applyScale(props, transform.scaleX, transform.scaleY);
+          transform = { ...transform, scaleX: 1, scaleY: 1 };
+          bake[id] = { transform, props };
+        }
+        before[id] = { transform, props };
+      }
+      const union = unionRects(rects);
+      if (union && Object.keys(before).length > 0) {
+        if (Object.keys(bake).length > 0) doc.setObjectsTransient(bake);
+        dragRef.current = {
+          mode: 'groupScale',
+          handle,
+          union,
+          anchor: groupScaleAnchor(union, handle),
+          before,
+          moved: false,
+        };
+      }
+      return;
+    }
+    // 複数選択の移動ハンドル: 選択中の全非ロックオブジェクトを一括移動する
+    if (handleKind === 'move' && doc.selection.length > 1) {
+      const before = buildMoveBefore(doc.objects, doc.selection);
+      if (Object.keys(before).length > 0) {
+        dragRef.current = {
+          mode: 'move',
+          hitId: doc.selection[0],
+          startWorld: world,
+          before,
+          moved: false,
+        };
+      }
+      return;
+    }
     if (handleKind && doc.selection.length === 1) {
       const obj = doc.objects[doc.selection[0]];
       const plugin = obj ? pluginRegistry.get(obj.pluginId) : undefined;
@@ -1010,11 +1094,7 @@ export function CanvasStage() {
         if (handleKind === 'move') {
           // 移動ハンドル: 本体ドラッグと同じ move モードで選択オブジェクトを動かす
           if (!obj.locked) {
-            const before: Record<string, Transform> = { [obj.id]: obj.transform };
-            // 接線拘束された線を動かすときはマスター円も一緒に動かす
-            const cref = obj.refs?.find((r) => r.kind === 'circle');
-            const target = cref ? doc.objects[cref.targetId] : undefined;
-            if (target && !target.locked) before[cref!.targetId] = target.transform;
+            const before = buildMoveBefore(doc.objects, [obj.id]);
             dragRef.current = { mode: 'move', hitId: obj.id, startWorld: world, before, moved: false };
           }
         } else if (handleKind === 'rotate') {
@@ -1171,19 +1251,7 @@ export function CanvasStage() {
     const ids = doc.selection.includes(hitObj.id) ? doc.selection : hitIds;
     if (!doc.selection.includes(hitObj.id)) doc.setSelection(hitIds);
 
-    const before: Record<string, Transform> = {};
-    for (const id of ids) {
-      const obj = doc.objects[id];
-      if (obj && !obj.locked) before[id] = obj.transform;
-    }
-    // 接線拘束された線を動かすときはマスター円も一緒に動かす(円マスター・線追従)
-    for (const id of Object.keys(before)) {
-      const cref = doc.objects[id]?.refs?.find((r) => r.kind === 'circle');
-      const target = cref ? doc.objects[cref.targetId] : undefined;
-      if (target && !target.locked && !(cref!.targetId in before)) {
-        before[cref!.targetId] = target.transform;
-      }
-    }
+    const before = buildMoveBefore(doc.objects, ids);
     dragRef.current = { mode: 'move', hitId: hitObj.id, startWorld: world, before, moved: false };
   };
 
@@ -1216,6 +1284,21 @@ export function CanvasStage() {
         transforms[id] = { ...t, x: t.x + snapped.dx, y: t.y + snapped.dy };
       }
       doc.setTransformsTransient(transforms);
+      drag.moved = true;
+      return;
+    }
+
+    if (drag.mode === 'groupScale') {
+      // 角をグリッドへスナップ(結合枠は常にワールド軸平行なので両軸スナップ可)
+      const snapped = snapWorldPoint({ point: world, snapEnabled, gridSize, axisX: true, axisY: true });
+      const f = computeGroupScaleFactor(drag.union, drag.handle, snapped.point);
+      const patches: Record<string, { transform: Transform; props: Record<string, unknown> }> = {};
+      for (const [id, snap] of Object.entries(drag.before)) {
+        const plugin = pluginRegistry.get(doc.objects[id]?.pluginId ?? '');
+        if (!plugin) continue;
+        patches[id] = scaleObjectAbout(plugin, snap.transform, snap.props, drag.anchor, f);
+      }
+      doc.setObjectsTransient(patches);
       drag.moved = true;
       return;
     }
@@ -1538,6 +1621,8 @@ export function CanvasStage() {
       } else {
         doc.commitTransforms({ [drag.id]: drag.before });
       }
+    } else if (drag.mode === 'groupScale' && drag.moved) {
+      doc.commitObjects(drag.before);
     } else if (drag.mode === 'endpoint' && drag.moved && drag.constrained) {
       // 接線拘束の片側長さ変更はバインドを作らずそのまま確定する
       doc.commitObject(drag.id, { transform: drag.before, props: drag.beforeProps });

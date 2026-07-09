@@ -88,6 +88,17 @@ interface DocumentState {
     id: string,
     before: { transform: Transform; props: Record<string, unknown>; refs?: ObjectRef[] },
   ): void;
+  /**
+   * 複数オブジェクトの transform / props を一時更新する(履歴に残さない)。
+   * グループ拡大縮小のように、複数の transform と props が同時に変わる操作用。
+   */
+  setObjectsTransient(
+    patches: Record<string, { transform?: Transform; props?: Record<string, unknown> }>,
+  ): void;
+  /** 複数オブジェクトの開始時 transform / props を渡し、差分を履歴へ1エントリで記録する */
+  commitObjects(
+    before: Record<string, { transform: Transform; props: Record<string, unknown> }>,
+  ): void;
 
   setSelection(ids: string[]): void;
   toggleSelection(id: string): void;
@@ -360,6 +371,51 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       if (before.refs !== undefined && JSON.stringify(cur.refs ?? null) !== JSON.stringify(before.refs)) {
         redo.push({ op: 'replace', path: [id, 'refs'], value: cur.refs });
         undo.push({ op: 'replace', path: [id, 'refs'], value: before.refs });
+      }
+      if (redo.length === 0) return;
+      set({
+        undoStack: [...get().undoStack, { redo, undo }].slice(-HISTORY_LIMIT),
+        redoStack: [],
+      });
+    },
+
+    setObjectsTransient(patches) {
+      const objects = { ...get().objects };
+      for (const [id, patch] of Object.entries(patches)) {
+        const obj = objects[id];
+        if (!obj) continue;
+        objects[id] = {
+          ...obj,
+          ...(patch.transform ? { transform: patch.transform } : {}),
+          ...(patch.props ? { props: patch.props } : {}),
+        };
+      }
+      set({ objects: solveConstraints(objects, pluginRegistry) });
+    },
+
+    commitObjects(before) {
+      const { objects } = get();
+      const redo: Patch[] = [];
+      const undo: Patch[] = [];
+      for (const [id, prev] of Object.entries(before)) {
+        const cur = objects[id];
+        if (!cur) continue;
+        const t = cur.transform;
+        const pt = prev.transform;
+        if (
+          t.x !== pt.x ||
+          t.y !== pt.y ||
+          t.rotation !== pt.rotation ||
+          t.scaleX !== pt.scaleX ||
+          t.scaleY !== pt.scaleY
+        ) {
+          redo.push({ op: 'replace', path: [id, 'transform'], value: t });
+          undo.push({ op: 'replace', path: [id, 'transform'], value: pt });
+        }
+        if (JSON.stringify(cur.props) !== JSON.stringify(prev.props)) {
+          redo.push({ op: 'replace', path: [id, 'props'], value: cur.props });
+          undo.push({ op: 'replace', path: [id, 'props'], value: prev.props });
+        }
       }
       if (redo.length === 0) return;
       set({

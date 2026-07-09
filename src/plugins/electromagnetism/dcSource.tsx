@@ -105,7 +105,7 @@ export const dcSourcePlugin: PhysicsObjectPlugin<DcSourceProps> = {
     const label = circuitLabelBounds({ x: 0, y: -props.longHeight / 2 - LABEL_GAP }, props);
     return label ? unionRects([body, label])! : body;
   },
-  ...twoTerminalScaffold<DcSourceProps>(),
+  ...twoTerminalScaffold<DcSourceProps>(['pitch', 'longHeight', 'shortHeight']),
   moveLabel: moveLabelOffset,
   createFromDrag(start, end) {
     const { length, transform } = lineFromDrag(start, end, this.defaultProps.length);

@@ -108,7 +108,7 @@ export const diodePlugin: PhysicsObjectPlugin<DiodeProps> = {
     const label = circuitLabelBounds({ x: 0, y: -props.bodyHeight / 2 - LABEL_GAP }, props);
     return label ? unionRects([body, label])! : body;
   },
-  ...twoTerminalScaffold<DiodeProps>(),
+  ...twoTerminalScaffold<DiodeProps>(['bodyLength', 'bodyHeight']),
   moveLabel: moveLabelOffset,
   createFromDrag(start, end) {
     const { length, transform } = lineFromDrag(start, end, this.defaultProps.length);

@@ -125,7 +125,7 @@ function makeMeterPlugin(
       const label = circuitLabelBounds({ x: 0, y: -props.radius - LABEL_GAP }, props);
       return label ? unionRects([body, label])! : body;
     },
-    ...twoTerminalScaffold<MeterProps>(),
+    ...twoTerminalScaffold<MeterProps>(['radius']),
     moveLabel: moveLabelOffset,
     createFromDrag(start, end) {
       const { length, transform } = lineFromDrag(start, end, this.defaultProps.length);

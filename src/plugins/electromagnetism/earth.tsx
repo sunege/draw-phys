@@ -92,6 +92,14 @@ export const earthPlugin: PhysicsObjectPlugin<EarthProps> = {
     return label ? unionRects([body, label])! : body;
   },
   getSnapPoints: () => [{ x: 0, y: 0 }],
+  // グループ拡大縮小用。本体寸法とラベル文字を等比で拡大(本数countと線幅は不変)
+  applyScale: (props, fx) => ({
+    ...props,
+    width: props.width * fx,
+    gap: props.gap * fx,
+    stub: props.stub * fx,
+    fontSize: props.fontSize * fx,
+  }),
   moveLabel: moveLabelOffset,
   capabilities: { rotatable: true, scalable: 'none' },
   placement: 'click',

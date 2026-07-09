@@ -116,7 +116,7 @@ export const capacitorPlugin: PhysicsObjectPlugin<CapacitorProps> = {
     const label = circuitLabelBounds({ x: 0, y: -props.plateHeight / 2 - LABEL_GAP }, props);
     return label ? unionRects([body, label])! : body;
   },
-  ...twoTerminalScaffold<CapacitorProps>(),
+  ...twoTerminalScaffold<CapacitorProps>(['gap', 'plateHeight']),
   moveLabel: moveLabelOffset,
   createFromDrag(start, end) {
     const { length, transform } = lineFromDrag(start, end, this.defaultProps.length);

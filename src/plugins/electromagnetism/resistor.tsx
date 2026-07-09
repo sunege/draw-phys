@@ -102,7 +102,7 @@ export const resistorPlugin: PhysicsObjectPlugin<ResistorProps> = {
     const label = circuitLabelBounds({ x: 0, y: -props.bodyHeight / 2 - LABEL_GAP }, props);
     return label ? unionRects([body, label])! : body;
   },
-  ...twoTerminalScaffold<ResistorProps>(),
+  ...twoTerminalScaffold<ResistorProps>(['bodyLength', 'bodyHeight']),
   moveLabel: moveLabelOffset,
   createFromDrag(start, end) {
     const { length, transform } = lineFromDrag(start, end, this.defaultProps.length);

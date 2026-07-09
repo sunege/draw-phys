@@ -108,7 +108,7 @@ export const inductorPlugin: PhysicsObjectPlugin<InductorProps> = {
     const label = circuitLabelBounds({ x: 0, y: -r - LABEL_GAP }, props);
     return label ? unionRects([body, label])! : body;
   },
-  ...twoTerminalScaffold<InductorProps>(),
+  ...twoTerminalScaffold<InductorProps>(['bodyLength']),
   moveLabel: moveLabelOffset,
   createFromDrag(start, end) {
     const { length, transform } = lineFromDrag(start, end, this.defaultProps.length);

@@ -107,7 +107,7 @@ export const switchPlugin: PhysicsObjectPlugin<SwitchProps> = {
     const label = circuitLabelBounds({ x: 0, y: -h - LABEL_GAP }, props);
     return label ? unionRects([body, label])! : body;
   },
-  ...twoTerminalScaffold<SwitchProps>(),
+  ...twoTerminalScaffold<SwitchProps>(['gap']),
   moveLabel: moveLabelOffset,
   createFromDrag(start, end) {
     const { length, transform } = lineFromDrag(start, end, this.defaultProps.length);
