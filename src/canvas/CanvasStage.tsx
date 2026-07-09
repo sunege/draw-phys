@@ -80,6 +80,7 @@ import styles from './CanvasStage.module.css';
 
 type DragState =
   | { mode: 'pan'; lastX: number; lastY: number }
+  | { mode: 'pinch'; lastDist: number; lastMid: Point }
   | {
       mode: 'move';
       /** クリックしたオブジェクトのID(ダブルクリック判定に使う) */
@@ -359,6 +360,10 @@ export function CanvasStage() {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
+  /** dragRef が現在どのポインタに属するか(余分な指のdown/upで割り込ませないため) */
+  const dragOwnerRef = useRef<number | null>(null);
+  /** 同時に触れているタッチポインタのスクリーン座標(2本指ピンチズーム/パン判定用) */
+  const touchPointers = useRef<Map<number, Point>>(new Map());
   /** 直前の「移動していないクリック」の記録(ダブルクリック判定用) */
   const lastClickRef = useRef<ClickRecord | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -683,6 +688,27 @@ export function CanvasStage() {
     } catch {
       /* noop */
     }
+
+    // タッチの2本目以降: 空クリック起因のマーキー/パンは打ち切って2本指ピンチズーム+パンへ切替。
+    // オブジェクト移動などの実質的なドラッグ中に触れた(手のひら等の)余分な指は割り込ませず無視する。
+    if (e.pointerType === 'touch') {
+      touchPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touchPointers.current.size >= 2) {
+        const [p0, p1] = [...touchPointers.current.values()];
+        const dragMode = dragRef.current?.mode;
+        if (!dragRef.current || dragMode === 'marquee' || dragMode === 'pan') {
+          setMarquee(null);
+          dragRef.current = {
+            mode: 'pinch',
+            lastDist: distance(p0, p1),
+            lastMid: { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 },
+          };
+          setPanning(true);
+        }
+        return;
+      }
+    }
+    dragOwnerRef.current = e.pointerId;
 
     // パン: 中ボタン or 右ドラッグ or Space+左ドラッグ
     if (e.button === 1 || e.button === 2 || (e.button === 0 && spaceHeld)) {
@@ -1256,6 +1282,9 @@ export function CanvasStage() {
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    if (e.pointerType === 'touch' && touchPointers.current.has(e.pointerId)) {
+      touchPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
     const drag = dragRef.current;
     if (!drag) return;
 
@@ -1263,6 +1292,26 @@ export function CanvasStage() {
       useViewportStore.getState().panBy(e.clientX - drag.lastX, e.clientY - drag.lastY);
       drag.lastX = e.clientX;
       drag.lastY = e.clientY;
+      return;
+    }
+
+    if (drag.mode === 'pinch') {
+      const svg = svgRef.current;
+      const pts = [...touchPointers.current.values()];
+      if (svg && pts.length >= 2) {
+        const [p0, p1] = pts;
+        const dist = distance(p0, p1);
+        const mid = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+        if (drag.lastDist > 0 && dist > 0) {
+          const { pan, zoom, zoomAt, panBy } = useViewportStore.getState();
+          // 直前の中点の位置(ワールド座標)を固定してズームし、次に中点の移動分だけパンする
+          const worldAtMid = screenToWorld(drag.lastMid.x, drag.lastMid.y, svg, pan, zoom);
+          zoomAt(worldAtMid, dist / drag.lastDist);
+          panBy(mid.x - drag.lastMid.x, mid.y - drag.lastMid.y);
+        }
+        drag.lastDist = dist;
+        drag.lastMid = mid;
+      }
       return;
     }
 
@@ -1588,8 +1637,33 @@ export function CanvasStage() {
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
+    if (e.pointerType === 'touch') touchPointers.current.delete(e.pointerId);
+
+    if (dragRef.current?.mode === 'pinch') {
+      // ピンチ中はどちらの指が離れてもジェスチャーを終了する(残った指では操作を継続しない)
+      dragRef.current = null;
+      dragOwnerRef.current = null;
+      setPanning(false);
+      try {
+        svgRef.current?.releasePointerCapture(e.pointerId);
+      } catch {
+        /* noop */
+      }
+      return;
+    }
+    if (dragRef.current && dragOwnerRef.current !== null && e.pointerId !== dragOwnerRef.current) {
+      // ドラッグ中に触れた余分な指(手のひら等)が離れただけ。進行中の操作には影響させない
+      try {
+        svgRef.current?.releasePointerCapture(e.pointerId);
+      } catch {
+        /* noop */
+      }
+      return;
+    }
+
     const drag = dragRef.current;
     dragRef.current = null;
+    dragOwnerRef.current = null;
     setPanning(false);
     setGuides({});
     try {
