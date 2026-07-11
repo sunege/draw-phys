@@ -4,6 +4,7 @@ import {
   findTangentAnchor,
   isLengthConstrained,
   isRotationConstrained,
+  isTangentAnchorRef,
   parallelOffset,
   perpendicularOffset,
   resolveCoincidentAnchor,
@@ -143,6 +144,18 @@ describe('resolveRef', () => {
     const r90 = resolveRef({ role: 'coincident', targetId: 'e', kind: 'ellipse', t: 90 }, objects, registry);
     expect(r90?.point.x).toBeCloseTo(100);
     expect(r90?.point.y).toBeCloseTo(125);
+  });
+
+  it('楕円周に接線方向が付く(単独接線=applyTangent用)', () => {
+    const objects: SceneObjects = { e: obj('e', 'test.ellipse', 0, 0) };
+    // t=0(+x端)の接線は+y方向(rx≠ryでも端点では軸に一致)。2点法の微小誤差は許容(precision 1)
+    const r0 = resolveRef({ role: 'anchor', targetId: 'e', kind: 'ellipse', t: 0 }, objects, registry);
+    expect(r0?.tangent?.x).toBeCloseTo(0, 1);
+    expect(Math.abs(r0?.tangent?.y ?? 0)).toBeCloseTo(1, 1);
+    // t=90(+y端)の接線は±x方向
+    const r90 = resolveRef({ role: 'anchor', targetId: 'e', kind: 'ellipse', t: 90 }, objects, registry);
+    expect(Math.abs(r90?.tangent?.x ?? 0)).toBeCloseTo(1, 1);
+    expect(r90?.tangent?.y).toBeCloseTo(0, 1);
   });
 
   it('回転した楕円でも媒介変数角度tがtransformで正しく反映される', () => {
@@ -860,6 +873,77 @@ describe('一致+接線(円周アンカーとの合成)', () => {
   });
 });
 
+describe('一致+接線(楕円周アンカーとの合成)', () => {
+  function tanRef(targetId: string, t = 0) {
+    return { role: 'anchor', targetId, kind: 'ellipse' as const, t };
+  }
+  // 横長楕円(rx=100, ry=50)を中心ワールド(200,0)へ置く
+  const bigEllipse = (x: number, y: number) =>
+    obj('e', 'test.ellipse', x, y, { props: { width: 200, height: 100 } });
+
+  it('一致点を通る楕円への接線角へ回転し、接点(t)を書き直す', () => {
+    const objects: SceneObjects = {
+      p: obj('p', 'test.snap', 0, 0), // pin基準=原点
+      e: bigEllipse(200, 0),
+      d: obj('d', 'test.endpoint', 0, 0, {
+        refs: [coRef('p', 0, { x: -50, y: 0 }), tanRef('e')],
+      }),
+    };
+    const issues: ConstraintIssue[] = [];
+    const solved = solveConstraints(objects, registry, issues);
+    expect(issues).toHaveLength(0);
+    // 一致点(局所-50,0)は基準点(0,0)を保つ
+    const anchorWorld = localToWorld({ x: -50, y: 0 }, solved.d.transform);
+    expect(anchorWorld.x).toBeCloseTo(0);
+    expect(anchorWorld.y).toBeCloseTo(0);
+    // 接点(媒介変数t)は±120°(横長楕円ゆえ円とは異なる角度)。回転はpin→接点の向きに一致
+    const t = solved.d.refs![1].t!;
+    expect(Math.abs(t)).toBeCloseTo(120);
+    const rad = (t * Math.PI) / 180;
+    const contact = { x: 200 + 100 * Math.cos(rad), y: 100 * 0.5 * Math.sin(rad) };
+    const ang = (Math.atan2(contact.y, contact.x) * 180) / Math.PI;
+    // 直線(原点→接点)の向き=解いた回転(=接線)
+    expect(Math.abs(ang)).toBeCloseTo(Math.abs(solved.d.transform.rotation));
+  });
+
+  it('一致点が楕円の内側なら解なし(issue)で姿勢を保つ', () => {
+    const objects: SceneObjects = {
+      p: obj('p', 'test.snap', 0, 0),
+      e: bigEllipse(30, 0), // 中心まで30 < rx=100 → 原点は楕円の内側
+      d: obj('d', 'test.endpoint', 0, 0, {
+        refs: [coRef('p', 0, { x: -50, y: 0 }), tanRef('e')],
+      }),
+    };
+    const issues: ConstraintIssue[] = [];
+    const solved = solveConstraints(objects, registry, issues);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ objectId: 'd', role: 'anchor', refIndex: 1 });
+    expect(solved.d.transform.rotation).toBeCloseTo(0); // 回転は変えない
+    const anchorWorld = localToWorld({ x: -50, y: 0 }, solved.d.transform); // 一致(先着)は満たす
+    expect(anchorWorld.x).toBeCloseTo(0);
+  });
+
+  it('楕円を動かすと接線も追従する', () => {
+    const objects: SceneObjects = {
+      p: obj('p', 'test.snap', 0, 0),
+      e: bigEllipse(200, 0),
+      d: obj('d', 'test.endpoint', 0, 0, {
+        refs: [coRef('p', 0, { x: -50, y: 0 }), tanRef('e')],
+      }),
+    };
+    const once = solveConstraints(objects, registry);
+    const rot1 = once.d.transform.rotation;
+    once.e = { ...once.e, transform: { ...once.e.transform, y: 80 } };
+    const twice = solveConstraints(once, registry);
+    // 楕円を上へ動かすと接線角も変わる(追従している)
+    expect(twice.d.transform.rotation).not.toBeCloseTo(rot1);
+    // それでも一致点は基準点(0,0)を保つ
+    const anchorWorld = localToWorld({ x: -50, y: 0 }, twice.d.transform);
+    expect(anchorWorld.x).toBeCloseTo(0);
+    expect(anchorWorld.y).toBeCloseTo(0);
+  });
+});
+
 describe('純関数ヘルパ', () => {
   it('tangentAngleThroughPoint: 基本の接線角と内側の解なし', () => {
     expect(tangentAngleThroughPoint({ x: 0, y: 0 }, { x: 100, y: 0 }, 50, 0)).toBeCloseTo(30);
@@ -924,19 +1008,32 @@ describe('isLengthConstrained', () => {
 
 describe('findTangentAnchor', () => {
   const tan = { role: 'anchor', targetId: 'c', kind: 'circle' as const };
-  // 端点を円周へ一致させた拘束。kind は 'circle' だが接線ではない(誤検出防止の要)
+  const tanEllipse = { role: 'anchor', targetId: 'e', kind: 'ellipse' as const };
+  // 周へ一致させた拘束。kind は circle/ellipse だが接線ではない(誤検出防止の要)
   const coCircle = { role: 'coincident', targetId: 'c', kind: 'circle' as const, t: 0 };
+  const coEllipse = { role: 'coincident', targetId: 'e', kind: 'ellipse' as const, t: 0 };
   const coPoint = { role: 'coincident', targetId: 's', kind: 'point' as const };
 
-  it('接線(role:anchor, kind:circle)だけを拾う', () => {
+  it('接線(role:anchor, kind:circle|ellipse)を拾う', () => {
     expect(findTangentAnchor([tan])).toBe(tan);
     expect(findTangentAnchor([coPoint, tan])).toBe(tan);
+    expect(findTangentAnchor([tanEllipse])).toBe(tanEllipse);
+    expect(findTangentAnchor([coPoint, tanEllipse])).toBe(tanEllipse);
   });
 
-  it('円周への一致拘束(role:coincident, kind:circle)は接線として拾わない', () => {
+  it('周への一致拘束(role:coincident)は接線として拾わない', () => {
     expect(findTangentAnchor([coCircle])).toBeUndefined();
+    expect(findTangentAnchor([coEllipse])).toBeUndefined();
     expect(findTangentAnchor([coPoint, coCircle])).toBeUndefined();
     expect(findTangentAnchor(undefined)).toBeUndefined();
     expect(findTangentAnchor([])).toBeUndefined();
+  });
+
+  it('isTangentAnchorRef: role=anchor かつ kind=circle|ellipse のみ真', () => {
+    expect(isTangentAnchorRef(tan)).toBe(true);
+    expect(isTangentAnchorRef(tanEllipse)).toBe(true);
+    expect(isTangentAnchorRef(coCircle)).toBe(false);
+    expect(isTangentAnchorRef(coEllipse)).toBe(false);
+    expect(isTangentAnchorRef(coPoint)).toBe(false);
   });
 });

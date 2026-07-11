@@ -3,6 +3,7 @@ import {
   findRotationLock,
   findTangentAnchor,
   isRotationConstrained,
+  isTangentAnchorRef,
   localSnapPoints,
   parallelOffset,
   perpendicularOffset,
@@ -39,6 +40,7 @@ import { useConstraintStore } from '../state/constraintStore';
 import { expandWithGroups, useDocumentStore } from '../state/documentStore';
 import { useEditorModalStore } from '../state/editorModalStore';
 import { useHintStore } from '../state/hintStore';
+import { useInlineTextEditStore } from '../state/inlineTextEditStore';
 import { useToastStore } from '../state/toastStore';
 import { useToolStore } from '../state/toolStore';
 import { useViewportStore } from '../state/viewportStore';
@@ -75,7 +77,7 @@ import {
   TANGENT_TOOL,
   TRIM_TOOL,
 } from './tools';
-import { KEY_TO_TOOL } from './toolShortcuts';
+import { KEY_TO_TOOL, SHIFT_KEY_TO_TOOL } from './toolShortcuts';
 import { computeGroupScaleFactor, groupScaleAnchor, scaleObjectAbout } from './groupScaleMath';
 import { computeTrimKeeps } from './trim';
 import { ellipseParamAngle } from './trimMath';
@@ -90,7 +92,7 @@ import {
 import styles from './CanvasStage.module.css';
 
 type DragState =
-  | { mode: 'pan'; lastX: number; lastY: number }
+  | { mode: 'pan'; lastX: number; lastY: number; startX: number; startY: number; rightClick: boolean }
   | { mode: 'pinch'; lastDist: number; lastMid: Point }
   | {
       mode: 'move';
@@ -511,12 +513,34 @@ function pickTrimTarget(
 }
 
 /**
+ * 接線対象(円 or 楕円)上で、ワールド点に対応する角度/媒介変数tと対象種別を返す。
+ * 接線ツールでの接点決定・接点スライドドラッグで使う(円=getCircle, 楕円=getEllipse)。
+ */
+function tangentAngleAt(obj: SceneObject, world: Point): { t: number; kind: 'circle' | 'ellipse' } | null {
+  const plugin = pluginRegistry.get(obj.pluginId);
+  if (plugin?.getCircle) {
+    const t = circleAngleAt(obj, world);
+    return t == null ? null : { t, kind: 'circle' };
+  }
+  if (plugin?.getEllipse) {
+    const t = ellipseAngleAt(obj, world);
+    return t == null ? null : { t, kind: 'ellipse' };
+  }
+  return null;
+}
+
+/**
  * 接線参照(role:'anchor')だけを新しい接点へ差し替えたrefsを返す。
  * 一致など他の拘束は並び(=優先度)ごと保持する。無ければ末尾に追加する。
  */
-function replaceTangentRef(refs: ObjectRef[], targetId: string, t: number): ObjectRef[] {
-  const next: ObjectRef = { role: 'anchor', targetId, kind: 'circle', t };
-  const idx = refs.findIndex((r) => r.role === 'anchor' && r.kind === 'circle');
+function replaceTangentRef(
+  refs: ObjectRef[],
+  targetId: string,
+  t: number,
+  kind: 'circle' | 'ellipse',
+): ObjectRef[] {
+  const next: ObjectRef = { role: 'anchor', targetId, kind, t };
+  const idx = refs.findIndex(isTangentAnchorRef);
   if (idx < 0) return [...refs, next];
   return refs.map((r, i) => (i === idx ? next : r));
 }
@@ -542,6 +566,13 @@ export function CanvasStage() {
   const touchPointers = useRef<Map<number, Point>>(new Map());
   /** 直前の「移動していないクリック」の記録(ダブルクリック判定用) */
   const lastClickRef = useRef<ClickRecord | null>(null);
+  /**
+   * 配置直後にインライン編集を開くオブジェクトID。pointerdownでは開かず、
+   * pointerupまで持ち越してから開く。pointerdown直後に発火するネイティブ
+   * mousedown(フォーカス不可なsvgが対象)の既定動作が、pointerdown中に
+   * フォーカスしたtextareaを即blurしてしまうのを避けるため。
+   */
+  const pendingInlineEditRef = useRef<string | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [panning, setPanning] = useState(false);
@@ -654,8 +685,10 @@ export function CanvasStage() {
         );
       } else if (e.key.startsWith('Arrow') && doc.selection.length > 0) {
         e.preventDefault();
-        const { gridSize } = useViewportStore.getState();
-        const step = e.shiftKey ? 1 : gridSize;
+        // 移動量は右上のスナップ設定に追従(グリッド/1/2/1/4=snapStep)。
+        // スナップOFF時・Shift併用時は1単位で微調整する。
+        const vp = useViewportStore.getState();
+        const step = e.shiftKey || !vp.snapEnabled ? 1 : vp.snapStep();
         const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
         const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
         const before: Record<string, Transform> = {};
@@ -696,10 +729,24 @@ export function CanvasStage() {
         } else {
           doc.removeObjects(doc.selection);
         }
-      } else if (!mod && !e.altKey && KEY_TO_TOOL[key]) {
-        // よく使うツールへの単一キー切替(l/v/s/c/p/a/t/m/d)
+      } else if (!mod && !e.altKey && e.shiftKey && SHIFT_KEY_TO_TOOL[key]) {
+        // 拘束ツールへの単一キー切替(Shift+t/c/p/n/m/s)
+        e.preventDefault();
+        useToolStore.getState().setActiveTool(SHIFT_KEY_TO_TOOL[key]);
+      } else if (!mod && !e.altKey && !e.shiftKey && KEY_TO_TOOL[key]) {
+        // よく使うツールへの単一キー切替(l/v/s/c/e/p/a/t/i/g/m/d/x/z)
         e.preventDefault();
         useToolStore.getState().setActiveTool(KEY_TO_TOOL[key]);
+      } else if (
+        !mod &&
+        !e.altKey &&
+        !e.shiftKey &&
+        (key === 'f' || key === 'b') &&
+        doc.selection.length > 0
+      ) {
+        // 選択オブジェクトを最前面(f)/最背面(b)へ
+        e.preventDefault();
+        doc.reorderSelection(key === 'f' ? 'front' : 'back');
       } else if (e.key === 'Escape') {
         useToolStore.getState().setActiveTool('select');
         doc.clearSelection();
@@ -830,8 +877,8 @@ export function CanvasStage() {
     } else if (activeTool === TANGENT_TOOL) {
       setHint(
         tangentLineId
-          ? { title: '接線', message: '接続する円・円弧をクリック' }
-          : { title: '接線', message: '円・円弧をクリック（先に線・矢印・ベクトルを選ぶと接続）' },
+          ? { title: '接線', message: '接続する円・円弧・楕円をクリック' }
+          : { title: '接線', message: '円・円弧・楕円をクリック（先に線・矢印・ベクトルを選ぶと接続）' },
       );
     } else if (activeTool === MIRROR_TOOL) {
       setHint(
@@ -867,6 +914,9 @@ export function CanvasStage() {
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
+    // インライン編集中のtextarea等はブラウザ標準の操作(ドラッグ選択等)に任せる。
+    // ここでpointer captureすると textarea 内のドラッグ選択が壊れるため最初に弾く
+    if (isEditableTarget(e.target)) return;
     const svg = svgRef.current;
     if (!svg) return;
     // ポインタが既に無効な場合(合成イベント等)は捕捉できなくてもよい
@@ -898,8 +948,17 @@ export function CanvasStage() {
     dragOwnerRef.current = e.pointerId;
 
     // パン: 中ボタン or 右ドラッグ or Space+左ドラッグ
+    // 右ボタンはドラッグせず離した場合(=右クリック)のみ直前ツールを再選択するため、
+    // 開始位置と右クリックか否かを覚えておく(判定は pointerup)。
     if (e.button === 1 || e.button === 2 || (e.button === 0 && spaceHeld)) {
-      dragRef.current = { mode: 'pan', lastX: e.clientX, lastY: e.clientY };
+      dragRef.current = {
+        mode: 'pan',
+        lastX: e.clientX,
+        lastY: e.clientY,
+        startX: e.clientX,
+        startY: e.clientY,
+        rightClick: e.button === 2,
+      };
       setPanning(true);
       return;
     }
@@ -1205,9 +1264,8 @@ export function CanvasStage() {
       const hitObj = hit ? doc.objects[hit.getAttribute('data-object-id') ?? ''] : undefined;
       if (!hitObj) return;
       const hitPlugin = pluginRegistry.get(hitObj.pluginId);
-      if (hitPlugin?.getCircle) {
-        const t = circleAngleAt(hitObj, world);
-        if (t == null) return;
+      const at = hitPlugin?.getCircle || hitPlugin?.getEllipse ? tangentAngleAt(hitObj, world) : null;
+      if (at) {
         let lineId = tangentLineId;
         if (!lineId) {
           const linePlugin = pluginRegistry.get('core.line');
@@ -1217,12 +1275,11 @@ export function CanvasStage() {
           lineId = newLine.id;
         }
         // 既存の拘束(一致等)は保持し、接線(anchor)だけを差し替える。
-        // 一致点が円の内側にある等で解けなければ試し解きで却下される
-        const others =
-          doc.objects[lineId]?.refs?.filter((r) => !(r.role === 'anchor' && r.kind === 'circle')) ?? [];
+        // 一致点が円/楕円の内側にある等で解けなければ試し解きで却下される
+        const others = doc.objects[lineId]?.refs?.filter((r) => !isTangentAnchorRef(r)) ?? [];
         const added = tryAddRefs(lineId, [
           ...others,
-          { role: 'anchor', targetId: hitObj.id, kind: 'circle', t },
+          { role: 'anchor', targetId: hitObj.id, kind: at.kind, t: at.t },
         ]);
         if (added) doc.setSelection([lineId]);
         setTangentLineId(null);
@@ -1291,12 +1348,15 @@ export function CanvasStage() {
         const picks = [...segPicks, pick];
         if (picks.length >= 2 && plugin.createFromPicks) {
           const created = plugin.createFromPicks(picks);
-          doc.addObject({
+          const obj = {
             ...createSceneObject(plugin, created.transform, doc.nextZIndex),
             props: created.props as Record<string, unknown>,
             transform: created.transform,
             refs: created.refs,
-          });
+          };
+          // hostTrims があれば生成と母線詰めを1履歴エントリで(フィレットの角消し)
+          if (created.hostTrims?.length) doc.addObjectWithHostTrims(obj, created.hostTrims);
+          else doc.addObject(obj);
           setSegPicks([]);
           useToolStore.getState().setActiveTool('select');
         } else {
@@ -1343,6 +1403,10 @@ export function CanvasStage() {
         // 文章系オブジェクトは配置直後に大型エディタを開く
         if (plugin.EditorModal && plugin.openEditorOnCreate) {
           useEditorModalStore.getState().open(created.id);
+        }
+        // インライン編集対応オブジェクトは配置直後からその場で入力させる(pointerupまで保留)
+        if (plugin.inlineEdit) {
+          pendingInlineEditRef.current = created.id;
         }
       }
       return;
@@ -1698,9 +1762,12 @@ export function CanvasStage() {
       drag.plugin.getEndpoints &&
       drag.plugin.setFromEndpoints
     ) {
-      // 一致/平行拘束された線: 固定点を保ちドラッグ端だけ動かして長さ(平行なら向きも固定)を再構築
+      // 一致/平行拘束された線: 固定点を保ちドラッグ端だけ動かして長さ(平行/角度固定なら向きも固定)を再構築
       const { coincidentBase, parallelLocked, beforeRefs } = drag.endpointPin;
       const lengthLocked = !!drag.plugin.isLengthLocked?.(drag.beforeProps);
+      // 角度固定ONの線は一致拘束と併存しても向きを保つ(平行拘束と同じ扱いで向きを固定する)
+      const angleLocked = !!drag.plugin.isAngleLocked?.(drag.beforeProps);
+      const dirLocked = parallelLocked || angleLocked;
       const snapped = snapEndpoint({
         point: world,
         objects: doc.objects,
@@ -1709,7 +1776,7 @@ export function CanvasStage() {
         snapEnabled,
         gridSize,
         threshold: 8 / zoom,
-        gridEnabled: !lengthLocked,
+        gridEnabled: !lengthLocked && !angleLocked,
       });
       const worldEps = drag.plugin.getEndpoints(drag.beforeProps).map((p) => localToWorld(p, drag.before));
       const co = beforeRefs.find((r) => r.role === 'coincident');
@@ -1718,9 +1785,9 @@ export function CanvasStage() {
       const centerAnchor = coincidentBase != null && Math.hypot(anchor.x, anchor.y) < 1e-6;
       // 固定基準点: 一致基準点があればそれ、無ければ非ドラッグ端の現在位置
       const F = coincidentBase ?? worldEps[1 - drag.end];
-      // ドラッグ端の目標位置。平行なら向きを固定して基準線上へ射影する
+      // ドラッグ端の目標位置。平行/角度固定なら向きを固定して基準線上へ射影する
       let target = snapped.point;
-      if (parallelLocked) {
+      if (dirLocked) {
         const dv = {
           x: worldEps[drag.end].x - worldEps[1 - drag.end].x,
           y: worldEps[drag.end].y - worldEps[1 - drag.end].y,
@@ -1931,10 +1998,13 @@ export function CanvasStage() {
 
     if (drag.mode === 'anchor') {
       const target = doc.objects[drag.targetId];
-      const t = target ? circleAngleAt(target, world) : null;
-      if (t != null) {
+      const at = target ? tangentAngleAt(target, world) : null;
+      if (at) {
         // 接線(anchor)だけを差し替え、一致など他の拘束は保持する
-        doc.setObjectRefsTransient(drag.id, replaceTangentRef(drag.beforeRefs, drag.targetId, t));
+        doc.setObjectRefsTransient(
+          drag.id,
+          replaceTangentRef(drag.beforeRefs, drag.targetId, at.t, at.kind),
+        );
       }
       drag.moved = true;
       return;
@@ -2030,6 +2100,22 @@ export function CanvasStage() {
       /* noop */
     }
 
+    if (drag?.mode === 'pan') {
+      // 右クリック(ほぼ動かさず離した)なら直前に使った配置/操作ツールを再選択して繰り返す。
+      // 右ドラッグはパン扱いのままにする。
+      if (drag.rightClick && Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < 4) {
+        const { lastTool, setActiveTool } = useToolStore.getState();
+        if (lastTool) setActiveTool(lastTool);
+      }
+      return;
+    }
+
+    if (pendingInlineEditRef.current) {
+      const pendingId = pendingInlineEditRef.current;
+      pendingInlineEditRef.current = null;
+      useInlineTextEditStore.getState().open(pendingId);
+    }
+
     if (!drag) return;
     const doc = useDocumentStore.getState();
 
@@ -2042,6 +2128,7 @@ export function CanvasStage() {
         lastClickRef.current = null;
         const plugin = pluginRegistry.get(doc.objects[drag.hitId]?.pluginId ?? '');
         if (plugin?.EditorModal) useEditorModalStore.getState().open(drag.hitId);
+        else if (plugin?.inlineEdit) useInlineTextEditStore.getState().open(drag.hitId);
       } else {
         lastClickRef.current = cur;
       }
@@ -2121,10 +2208,10 @@ export function CanvasStage() {
     } else if (drag.mode === 'anchor' && drag.moved) {
       // 接続点スライドの確定: ベースを戻して1履歴エントリで記録する(他の拘束は保持)
       const target = doc.objects[drag.targetId];
-      const t = target ? circleAngleAt(target, worldFromEvent(e)) : null;
+      const at = target ? tangentAngleAt(target, worldFromEvent(e)) : null;
       doc.setObjectRefsTransient(drag.id, drag.beforeRefs);
-      if (t != null) {
-        doc.setObjectRefs(drag.id, replaceTangentRef(drag.beforeRefs, drag.targetId, t));
+      if (at) {
+        doc.setObjectRefs(drag.id, replaceTangentRef(drag.beforeRefs, drag.targetId, at.t, at.kind));
       }
     } else if (drag.mode === 'coincidentDrag') {
       if (drag.moved) {

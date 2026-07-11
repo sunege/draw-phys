@@ -44,8 +44,8 @@ export interface ObjectRef {
    * - 'perpendicular' 自オブジェクトの回転を基準線分と垂直に保つ(angleOffset ±90)
    * - 'coincident'    自オブジェクトの局所アンカーを基準点に一致させ追従させる(一致/接続)。
    *                   複数持てる: 2本目は残った自由度(回転、線分系なら長さも)で解く=2点拘束。
-   * - 'anchor'(kind:'circle') coincidentと同居する場合は本体ソルバが「一致点を通る円への接線」
-   *                   として回転を解く(接点は浮動、tを書き直す)。単独ならプラグインのapplyRefs担当。
+   * - 'anchor'(kind:'circle'|'ellipse') coincidentと同居する場合は本体ソルバが「一致点を通る
+   *                   円/楕円への接線」として回転を解く(接点は浮動、tを書き直す)。単独ならプラグインのapplyRefs担当。
    * - 'symmetric'     自オブジェクト全体を基準オブジェクト(kind:'object')の鏡像に保つ。
    *                   対称軸は同オブジェクトの 'symmetricAxis'(kind:'segment')で指定する。
    *                   基準と同じ種類(pluginId)のときのみ張れる。

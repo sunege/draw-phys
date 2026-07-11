@@ -1,6 +1,6 @@
 import { useMemo, useState, type ComponentType } from 'react';
 import { OPERATION_TOOLS } from '../canvas/tools';
-import { TOOL_SHORTCUTS } from '../canvas/toolShortcuts';
+import { SHIFT_TOOL_SHORTCUTS, TOOL_SHORTCUTS } from '../canvas/toolShortcuts';
 import { pluginRegistry } from '../core/registry';
 import { LEFT_CFG, useLayoutStore } from '../state/layoutStore';
 import { useToolStore } from '../state/toolStore';
@@ -144,7 +144,13 @@ export function Toolbox() {
             )}
             {open &&
               items.map((item) => {
-                const shortcut = TOOL_SHORTCUTS[item.id];
+                const plainShortcut = TOOL_SHORTCUTS[item.id];
+                const shiftShortcut = SHIFT_TOOL_SHORTCUTS[item.id];
+                const shortcut = plainShortcut
+                  ? plainShortcut
+                  : shiftShortcut
+                    ? `Shift+${shiftShortcut.toUpperCase()}`
+                    : undefined;
                 return (
                   <button
                     key={item.id}

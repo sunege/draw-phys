@@ -46,10 +46,10 @@ const DISTRIBUTE_ACTIONS: { mode: DistributeMode; label: string; title: string }
 ];
 
 const REORDER_ACTIONS: { mode: ReorderMode; label: string; title: string }[] = [
-  { mode: 'front', label: '⏫', title: '最前面へ (Ctrl+Shift+])' },
+  { mode: 'front', label: '⏫', title: '最前面へ (f / Ctrl+Shift+])' },
   { mode: 'forward', label: '🔼', title: '前面へ (Ctrl+])' },
   { mode: 'backward', label: '🔽', title: '背面へ (Ctrl+[)' },
-  { mode: 'back', label: '⏬', title: '最背面へ (Ctrl+Shift+[)' },
+  { mode: 'back', label: '⏬', title: '最背面へ (b / Ctrl+Shift+[)' },
 ];
 
 /** 選択オブジェクトへの共通操作(グループ化・整列・重なり順・ロック・非表示) */

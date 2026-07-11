@@ -7,8 +7,9 @@ import {
   pointOnEllipseAtParam,
   rectCorners,
 } from './geometry';
+import { solveEllipseTangentThroughPoint } from './ellipseTangent';
 import { mirrorObject } from './mirror';
-import type { AnyPlugin, ResolvedRef } from './plugin';
+import type { AnyPlugin, CircleGeometry, EllipseGeometry, ResolvedRef } from './plugin';
 import type { PluginRegistry } from './registry';
 import type { ObjectRef, Point, Transform } from './types';
 
@@ -81,12 +82,20 @@ export function findRotationLock(refs?: ObjectRef[]): ObjectRef | undefined {
 }
 
 /**
- * 接線拘束(円周へのanchor)を返す。**円周への一致拘束(role:'coincident', kind:'circle')は
- * 接線ではないので対象外**。接点ハンドルの表示/接点スライドdrag/マスター円の移動追従など、
- * 「接線らしさ」の判定はすべてこれを通す(kind==='circle'だけで判定すると一致拘束を誤検出する)。
+ * 接線拘束の参照か。円(kind:'circle')・楕円(kind:'ellipse')の周への anchor が対象。
+ * **円/楕円周への一致拘束(role:'coincident')は接線ではないので対象外**(role で区別する)。
+ */
+export function isTangentAnchorRef(ref: ObjectRef): boolean {
+  return ref.role === 'anchor' && (ref.kind === 'circle' || ref.kind === 'ellipse');
+}
+
+/**
+ * 接線拘束(円/楕円周へのanchor)を返す。**周への一致拘束(role:'coincident', kind:'circle'|'ellipse')は
+ * 接線ではないので対象外**。接点ハンドルの表示/接点スライドdrag/マスター図形の移動追従など、
+ * 「接線らしさ」の判定はすべてこれを通す(kindだけで判定すると一致拘束を誤検出する)。
  */
 export function findTangentAnchor(refs?: ObjectRef[]): ObjectRef | undefined {
-  return refs?.find((r) => r.role === 'anchor' && r.kind === 'circle');
+  return refs?.find(isTangentAnchorRef);
 }
 
 /**
@@ -201,13 +210,18 @@ export function resolveRef(
   }
 
   if (ref.kind === 'ellipse') {
-    // 楕円周上の媒介変数角度tの点を求め、transformでワールドへ(一致拘束の基準点)。
-    // 接線・半径は楕円では一意なスカラーにならないため付けない(coincident専用)。
+    // 楕円周上の媒介変数角度tの点を求め、transformでワールドへ。
+    // 接線方向は2点法でワールドの回転・スケールを反映して算出する(単独接線=applyTangent・
+    // 接線マーカーが使う)。半径は楕円では一意なスカラーにならないため付けない。
     const ellipse = plugin.getEllipse?.(target.props);
     if (!ellipse) return null;
-    const off = pointOnEllipseAtParam(ellipse.radiusX, ellipse.radiusY, ref.t ?? 0);
-    const localP = { x: ellipse.center.x + off.x, y: ellipse.center.y + off.y };
-    return { role: ref.role, point: localToWorld(localP, target.transform) };
+    const t = ref.t ?? 0;
+    const off = pointOnEllipseAtParam(ellipse.radiusX, ellipse.radiusY, t);
+    const point = localToWorld({ x: ellipse.center.x + off.x, y: ellipse.center.y + off.y }, target.transform);
+    const off2 = pointOnEllipseAtParam(ellipse.radiusX, ellipse.radiusY, t + 1);
+    const nextP = localToWorld({ x: ellipse.center.x + off2.x, y: ellipse.center.y + off2.y }, target.transform);
+    const tangent = normalize({ x: nextP.x - point.x, y: nextP.y - point.y });
+    return { role: ref.role, point, tangent };
   }
 
   // circle: 対象ローカルで角度tの点を求め、transformでワールドへ。接線・半径も算出
@@ -397,26 +411,19 @@ function solveReservedRoles(
     }
   };
 
+  // 接点の角度tをrefへ書き直す(マーカー表示・保存の整合。値が同じなら書かない)
+  const writeContactT = (i: number, t: number, ref: ObjectRef) => {
+    if (Math.abs(normDeg(t - (ref.t ?? 0))) > 1e-9) {
+      refs = refs.map((r2, j) => (j === i ? { ...r2, t } : r2));
+    }
+  };
+
   // 接線(円周へのanchor): ピン点を通る円への接線として回転を解く
-  const solveTangent = (i: number, ref: ObjectRef) => {
-    const target = objs[ref.targetId];
-    const tPlugin = target ? registry.get(target.pluginId) : undefined;
-    const circle = target && tPlugin?.getCircle?.(target.props);
-    if (!target || !circle) return; // 欠損はスキップ(現行踏襲)
-    if (!pin) {
-      // 一致拘束が無い場合、単独接線はプラグイン(applyRefs)の担当。
-      // 回転拘束と同居していると解けないため報告する(既存データの[接線,平行]順は従来どおり黙認)
-      if (rotationLocked) report(i, '回転が既に他の拘束で決まっているため接線にできません');
-      return;
-    }
-    if (Math.abs(pin.local.y) > AXIS_EPS) {
-      report(i, '接線拘束は線分軸上の一致点とのみ組み合わせられます');
-      return;
-    }
+  const solveCircleTangent = (i: number, ref: ObjectRef, target: SceneObject, circle: CircleGeometry) => {
     const C = localToWorld(circle.center, target.transform);
     const r = circle.radius * Math.abs(target.transform.scaleX);
     if (!rotationLocked) {
-      const ang = tangentAngleThroughPoint(pin.world, C, r, transform.rotation);
+      const ang = tangentAngleThroughPoint(pin!.world, C, r, transform.rotation);
       if (ang == null) {
         report(i, '一致点が円の内側にあるため接線を引けません');
         return;
@@ -428,21 +435,62 @@ function solveReservedRoles(
       // 回転消費済み: 現在の向きで接しているかだけ確認する
       const rad = (transform.rotation * Math.PI) / 180;
       const dir = { x: Math.cos(rad), y: Math.sin(rad) };
-      const toC = { x: C.x - pin.world.x, y: C.y - pin.world.y };
+      const toC = { x: C.x - pin!.world.x, y: C.y - pin!.world.y };
       if (Math.abs(Math.abs(toC.x * dir.y - toC.y * dir.x) - r) > TOL) {
         report(i, '回転が既に他の拘束で決まっているため接線にできません');
         return;
       }
     }
-    // 接点の角度をrefへ書き直す(マーカー表示・保存の整合。値が同じなら書かない)
+    // 接点 = 中心を接線へ下ろした垂線の足(円は中心の射影が接点)
     const rad = (transform.rotation * Math.PI) / 180;
     const dir = { x: Math.cos(rad), y: Math.sin(rad) };
-    const s = (C.x - pin.world.x) * dir.x + (C.y - pin.world.y) * dir.y;
-    const contact = { x: pin.world.x + s * dir.x, y: pin.world.y + s * dir.y };
-    const t = projectPointToCircleAngle(contact, target, C);
-    if (Math.abs(normDeg(t - (ref.t ?? 0))) > 1e-9) {
-      refs = refs.map((r2, j) => (j === i ? { ...r2, t } : r2));
+    const s = (C.x - pin!.world.x) * dir.x + (C.y - pin!.world.y) * dir.y;
+    const contact = { x: pin!.world.x + s * dir.x, y: pin!.world.y + s * dir.y };
+    writeContactT(i, projectPointToCircleAngle(contact, target, C), ref);
+  };
+
+  // 接線(楕円周へのanchor): ピン点を通る楕円への接線として回転を解く。
+  // 楕円は正規化空間(単位円)で解き、回転と接点の媒介変数tを同時に得る。
+  const solveEllipseTangent = (i: number, ref: ObjectRef, target: SceneObject, ellipse: EllipseGeometry) => {
+    const sol = solveEllipseTangentThroughPoint(pin!.world, target.transform, ellipse, transform.rotation);
+    if (!sol) {
+      report(i, '一致点が楕円の内側にあるため接線を引けません');
+      return;
     }
+    if (!rotationLocked) {
+      transform = { ...transform, rotation: sol.rotation };
+      rotationLocked = true;
+      applyPin();
+    } else {
+      // 回転消費済み: 理想の接線角と現在の向き(±180は同一直線)が一致するか確認する
+      const diff = Math.abs(normDeg(sol.rotation - transform.rotation));
+      if (diff > TOL && Math.abs(diff - 180) > TOL) {
+        report(i, '回転が既に他の拘束で決まっているため接線にできません');
+        return;
+      }
+    }
+    writeContactT(i, sol.t, ref);
+  };
+
+  // 接線(円/楕円周へのanchor): ピン点を通る接線として回転を解く
+  const solveTangent = (i: number, ref: ObjectRef) => {
+    const target = objs[ref.targetId];
+    const tPlugin = target ? registry.get(target.pluginId) : undefined;
+    const circle = target ? tPlugin?.getCircle?.(target.props) : undefined;
+    const ellipse = target && !circle ? tPlugin?.getEllipse?.(target.props) : undefined;
+    if (!target || (!circle && !ellipse)) return; // 欠損はスキップ(現行踏襲)
+    if (!pin) {
+      // 一致拘束が無い場合、単独接線はプラグイン(applyRefs)の担当。
+      // 回転拘束と同居していると解けないため報告する(既存データの[接線,平行]順は従来どおり黙認)
+      if (rotationLocked) report(i, '回転が既に他の拘束で決まっているため接線にできません');
+      return;
+    }
+    if (Math.abs(pin.local.y) > AXIS_EPS) {
+      report(i, '接線拘束は線分軸上の一致点とのみ組み合わせられます');
+      return;
+    }
+    if (circle) solveCircleTangent(i, ref, target, circle);
+    else solveEllipseTangent(i, ref, target, ellipse!);
   };
 
   // 位置ピン(最初のcoincident)を先に処理し、残りは配列順で
@@ -476,7 +524,7 @@ function solveReservedRoles(
       const base = resolveCoincidentAnchor(ref, objs, registry);
       if (!base) continue; // 欠損はスキップ
       solveExtraCoincident(i, ref.localAnchor ?? { x: 0, y: 0 }, base);
-    } else if (ref.role === 'anchor' && ref.kind === 'circle') {
+    } else if (isTangentAnchorRef(ref)) {
       solveTangent(i, ref);
     }
   }

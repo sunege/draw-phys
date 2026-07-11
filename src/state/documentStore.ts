@@ -7,7 +7,7 @@ import {
 } from '../core/constraints';
 import { sortedObjects, type SceneObject, type SceneObjects } from '../core/document';
 import { unionRects, worldBounds } from '../core/geometry';
-import type { TrimPiece } from '../core/plugin';
+import type { HostTrim, TrimPiece } from '../core/plugin';
 import { pluginRegistry } from '../core/registry';
 import type { ObjectRef, Rect, Transform } from '../core/types';
 import { useConstraintStore } from './constraintStore';
@@ -69,6 +69,12 @@ interface DocumentState {
   addObject(obj: SceneObject): void;
   /** 複数オブジェクトを1履歴エントリで追加し、選択する(貼り付け用) */
   addObjects(objs: SceneObject[]): void;
+  /**
+   * オブジェクトを追加すると同時に、既存の母線(線分)を接点まで詰める(1履歴エントリ)。
+   * pick-segments 生成(フィレット)で、角の直線部を消すのに使う。
+   * trim 対象は setFromEndpoints を持つプラグインのみ(三角形の斜面などはスキップ)。
+   */
+  addObjectWithHostTrims(obj: SceneObject, trims: HostTrim[]): void;
   removeObjects(ids: string[]): void;
   /**
    * トリム結果を適用する(履歴1エントリ)。pieces から対象を作り直す:
@@ -202,6 +208,22 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         nextZIndex: Math.max(get().nextZIndex, maxZ) + 1,
         selection: objs.map((o) => o.id),
       });
+    },
+
+    addObjectWithHostTrims(obj, trims) {
+      mutate((draft) => {
+        draft[obj.id] = obj;
+        for (const tr of trims) {
+          const host = draft[tr.targetId];
+          if (!host) continue;
+          const hp = pluginRegistry.get(host.pluginId);
+          if (!hp?.setFromEndpoints) continue; // 端点編集不可(三角形等)はスキップ
+          const res = hp.setFromEndpoints(host.props, tr.a, tr.b);
+          host.props = res.props as Record<string, unknown>;
+          host.transform = res.transform;
+        }
+      });
+      set({ nextZIndex: Math.max(get().nextZIndex, obj.zIndex) + 1, selection: [obj.id] });
     },
 
     removeObjects(ids) {

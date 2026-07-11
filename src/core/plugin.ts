@@ -31,9 +31,10 @@ export interface CircleGeometry {
 
 /**
  * 楕円・楕円弧の幾何情報(ローカル座標、媒介変数角度)。
- * トリム・作図補助線(construction)・楕円周へのスナップ/一致(coincident)拘束で使う。
- * 接線拘束・長さマークの半径/直径測定には使わない(それらは getCircle=スカラー半径のみを見る。
- * 楕円は接線方向も半径も一意なスカラーにならないため)。
+ * トリム・作図補助線(construction)・楕円周へのスナップ/一致(coincident)拘束・接線拘束で使う。
+ * 接線は媒介変数tで向きが一意に決まるので張れる(正規化空間で解く=ellipseTangent.ts)。
+ * ただし長さマークの半径/直径測定には使わない(それは getCircle=スカラー半径のみを見る。
+ * 楕円は「半径」が一意なスカラーにならないため)。
  * startAngle/endAngle は P(t)=(radiusX·cos t, radiusY·sin t) の媒介変数角度であり、
  * radiusX≠radiusY のとき中心から見た真の幾何角とは一致しない点に注意。
  */
@@ -55,6 +56,17 @@ export interface ResolvedRef {
   tangent?: Point;
   /** 円拘束のときのワールド半径 */
   radius?: number;
+}
+
+/**
+ * pick-segments 配置で、生成と同時に既存の母線(線分オブジェクト)を詰める指示。
+ * a,b は新しいワールド端点。本体が対象プラグインの setFromEndpoints で適用する
+ * (端点編集に対応しない対象=三角形の斜面などは適用をスキップする)。
+ */
+export interface HostTrim {
+  targetId: string;
+  a: Point;
+  b: Point;
 }
 
 /** pick-segments 配置で1回のクリックが選んだ線分と、その線分上のクリック位置 */
@@ -151,6 +163,13 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
   /** クリック配置の直後に EditorModal を自動で開く(文章系オブジェクト向け) */
   openEditorOnCreate?: boolean;
   /**
+   * ダブルクリック(および配置直後)で inlineTextEditStore を開き、
+   * キャンバス上でその場編集させるか。対象プラグインは自身の Renderer 内で
+   * ストアの objectId と自分の objectId を照合し、編集UI(textarea等)へ切り替える。
+   * 本体はこのフラグの有無だけを見て開閉し、編集UIの中身には関知しない。
+   */
+  inlineEdit?: boolean;
+  /**
    * ローカル座標系でのSVG描画。
    * ラベル付きオブジェクトは transform(回転の打ち消し用)や objectId
    * (ラベルドラッグの当たり判定用)、interactive(操作可否)を受け取る。
@@ -178,7 +197,7 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
   getCircle?(props: P): CircleGeometry | null;
   /**
    * ローカル座標での楕円/楕円弧の幾何情報。トリム・補助線描画・楕円周へのスナップ/
-   * 一致拘束の相手になる(getCircleとは独立。接線・半径測定には使わない)。
+   * 一致拘束・接線拘束の相手になる(getCircleとは独立。半径/直径測定には使わない)。
    */
   getEllipse?(props: P): EllipseGeometry | null;
   /**
@@ -286,8 +305,15 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
   /**
    * pick-segments 配置時に、2つの線分ピックから props / transform / refs を決める。
    * placement が 'pick-segments' の場合は必須。
+   * hostTrims を返すと、本体が生成と同じ履歴エントリ内で母線(線分)を接点まで詰める
+   * (フィレットが角の直線部を消すのに使う)。
    */
-  createFromPicks?(picks: SegmentPick[]): { props: P; transform: Transform; refs: ObjectRef[] };
+  createFromPicks?(picks: SegmentPick[]): {
+    props: P;
+    transform: Transform;
+    refs: ObjectRef[];
+    hostTrims?: HostTrim[];
+  };
   /**
    * drag-line 配置中に背景でなくオブジェクトをクリックしたとき、そのエッジ/円へ
    * バインドする参照を返す(transform/lengthは applyRefs が算出)。

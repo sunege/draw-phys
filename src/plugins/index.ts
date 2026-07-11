@@ -39,6 +39,7 @@ import { variableResistorPlugin } from './electromagnetism/variableResistor';
 import { energyLevelsPlugin } from './atom/energyLevels';
 import { blockPlugin } from './mechanics/block';
 import { cartPlugin } from './mechanics/cart';
+import { filletPlugin } from './mechanics/fillet';
 import { floorPlugin } from './mechanics/floor';
 import { forceVectorPlugin } from './mechanics/forceVector';
 import { inclinePlugin } from './mechanics/incline';
@@ -84,6 +85,7 @@ export function registerStandardPlugins(): void {
   pluginRegistry.register(forceVectorPlugin);
   pluginRegistry.register(floorPlugin);
   pluginRegistry.register(inclinePlugin);
+  pluginRegistry.register(filletPlugin);
   pluginRegistry.register(pulleyPlugin);
   pluginRegistry.register(cartPlugin);
   pluginRegistry.register(stringPlugin);

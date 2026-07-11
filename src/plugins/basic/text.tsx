@@ -1,6 +1,9 @@
+import { useEffect, useRef } from 'react';
 import { mirrorKeepUpright } from '../../core/mirror';
 import type { PhysicsObjectPlugin } from '../../core/plugin';
-import type { Rect } from '../../core/types';
+import type { Rect, Transform } from '../../core/types';
+import { useDocumentStore } from '../../state/documentStore';
+import { useInlineTextEditStore } from '../../state/inlineTextEditStore';
 import { DEFAULT_FONT_FAMILY, FONT_FAMILY_OPTIONS, resolveFontFamily } from './fontFamilies';
 
 interface TextProps {
@@ -65,10 +68,84 @@ export const textPlugin: PhysicsObjectPlugin<TextProps> = {
     { key: 'bold', label: '太字', type: 'boolean' },
     { key: 'bg', label: '背景', type: 'boolean' },
   ],
-  Renderer: ({ props }) => {
+  Renderer: ({ props, objectId, interactive }) => {
+    const isInlineTarget = useInlineTextEditStore((s) => s.objectId === objectId);
+    const editing = interactive === true && isInlineTarget;
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    // 編集開始時のスナップショット(キャンセル復元・commit差分の基準)
+    const beforeRef = useRef<{ transform: Transform; props: Record<string, unknown> } | null>(null);
+    const canceledRef = useRef(false);
+
+    useEffect(() => {
+      if (!editing || !objectId) return;
+      const obj = useDocumentStore.getState().objects[objectId];
+      if (!obj) return;
+      beforeRef.current = { transform: obj.transform, props: obj.props };
+      canceledRef.current = false;
+      textareaRef.current?.focus();
+      textareaRef.current?.select();
+    }, [editing, objectId]);
+
+    const b = textBounds(props);
+
+    if (editing && objectId) {
+      const id = objectId;
+      const finishEdit = () => {
+        const doc = useDocumentStore.getState();
+        const before = beforeRef.current;
+        if (before) {
+          if (canceledRef.current) doc.setObjectTransient(id, { props: before.props });
+          else doc.commitObject(id, before);
+        }
+        useInlineTextEditStore.getState().close();
+      };
+      return (
+        <foreignObject x={b.x} y={b.y} width={b.width} height={b.height} style={{ overflow: 'visible' }}>
+          <textarea
+            ref={textareaRef}
+            {...{ xmlns: 'http://www.w3.org/1999/xhtml' }}
+            value={props.text}
+            wrap="off"
+            spellCheck={false}
+            onChange={(e) => {
+              useDocumentStore
+                .getState()
+                .setObjectTransient(id, { props: { ...props, text: e.target.value } });
+            }}
+            onBlur={finishEdit}
+            // Escapeで編集前へ復元(IME確定中のEscapeは変換候補の取り消しに使わせる)
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && !e.nativeEvent.isComposing) {
+                canceledRef.current = true;
+                e.currentTarget.blur();
+              }
+              e.stopPropagation();
+            }}
+            style={{
+              width: '100%',
+              height: '100%',
+              boxSizing: 'border-box',
+              resize: 'none',
+              overflow: 'hidden',
+              border: '1px dashed #2b7de9',
+              outline: 'none',
+              padding: 0,
+              margin: 0,
+              background: props.bg ? '#ffffff' : 'transparent',
+              fontSize: props.fontSize,
+              fontFamily: resolveFontFamily(props.fontFamily),
+              fontWeight: props.bold ? 700 : 400,
+              color: props.color,
+              lineHeight: `${props.fontSize * LINE_HEIGHT}px`,
+              textAlign: 'center',
+            }}
+          />
+        </foreignObject>
+      );
+    }
+
     const lines = props.text.split('\n');
     const lineH = props.fontSize * LINE_HEIGHT;
-    const b = textBounds(props);
     return (
       <g>
         {props.bg && (
@@ -95,6 +172,8 @@ export const textPlugin: PhysicsObjectPlugin<TextProps> = {
   applyScale: (props, fx) => ({ ...props, fontSize: props.fontSize * fx }),
   capabilities: { rotatable: true, scalable: 'uniform' },
   placement: 'click',
+  // ダブルクリック(および配置直後)でキャンバス上そのまま編集させる
+  inlineEdit: true,
   // 鏡像は位置だけ反射し、文字は読める向きのまま(向き反転で読めなくなるのを避ける)
   mirror: mirrorKeepUpright,
 };

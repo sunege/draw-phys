@@ -5,6 +5,7 @@ import { pluginRegistry } from '../core/registry';
 import type { Rect } from '../core/types';
 import { useKatexFontsTick } from '../plugins/basic/katexFonts';
 import { useDocumentStore } from '../state/documentStore';
+import { useInlineTextEditStore } from '../state/inlineTextEditStore';
 import { useViewportStore } from '../state/viewportStore';
 import type { HandleDir } from './transformMath';
 
@@ -212,10 +213,13 @@ export function SelectionOverlay() {
   const objects = useDocumentStore((s) => s.objects);
   const selection = useDocumentStore((s) => s.selection);
   const zoom = useViewportStore((s) => s.zoom);
+  const inlineEditId = useInlineTextEditStore((s) => s.objectId);
   // 数式のバウンディングはフォント実寸に依存するため、ロード完了後に選択枠を測り直す
   useKatexFontsTick();
 
   if (selection.length === 0) return null;
+  // インライン編集中はtextarea側の枠で十分なので、拡縮・回転ハンドルは隠す
+  if (selection.length === 1 && selection[0] === inlineEditId) return null;
 
   if (selection.length === 1) {
     const obj = objects[selection[0]];
