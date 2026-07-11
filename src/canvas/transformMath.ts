@@ -197,3 +197,18 @@ export function projectOntoFixedRadius(anchor: Point, length: number, target: Po
   const unit = d > 1e-9 ? { x: dir.x / d, y: dir.y / d } : { x: 1, y: 0 };
   return { x: anchor.x + unit.x * length, y: anchor.y + unit.y * length };
 }
+
+/**
+ * 角度固定の端点ドラッグ。anchor(反対端)から direction(元の向きの単位ベクトル)へ
+ * 伸びる直線上へ target を射影し、長さのみを変える(向きの反転は禁止=最小長でクランプ)。
+ */
+export function projectOntoFixedAngle(
+  anchor: Point,
+  direction: Point,
+  target: Point,
+  minLength = 1,
+): Point {
+  const dot = (target.x - anchor.x) * direction.x + (target.y - anchor.y) * direction.y;
+  const len = Math.max(dot, minLength);
+  return { x: anchor.x + direction.x * len, y: anchor.y + direction.y * len };
+}

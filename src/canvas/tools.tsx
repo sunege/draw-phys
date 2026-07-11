@@ -19,6 +19,7 @@ export const COINCIDENT_TOOL = 'coincident';
 export const MIDPOINT_TOOL = 'midpoint';
 export const SYMMETRY_TOOL = 'symmetry';
 export const TRIM_TOOL = 'trim';
+export const SPLIT_TOOL = 'split';
 export const MIRROR_TOOL = 'mirror';
 export const GRAPH_RANGE_TOOL = 'graphRange';
 
@@ -33,6 +34,21 @@ export const OPERATION_TOOLS: OperationTool[] = [
         <circle cx="7" cy="17" r="2.4" fill="none" stroke="currentColor" strokeWidth="1.6" />
         <line x1="8.9" y1="8.4" x2="20" y2="18" stroke="currentColor" strokeWidth="1.6" />
         <line x1="8.9" y1="15.6" x2="20" y2="6" stroke="currentColor" strokeWidth="1.6" />
+      </svg>
+    ),
+  },
+  {
+    id: SPLIT_TOOL,
+    name: '分割',
+    category: '編集',
+    Icon: () => (
+      <svg width="20" height="20" viewBox="0 0 24 24">
+        {/* 1本の線が交点で2つの断片に分かれる(両方残る) */}
+        <line x1="2" y1="12" x2="10" y2="12" stroke="currentColor" strokeWidth="1.8" />
+        <line x1="14" y1="12" x2="22" y2="12" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="10" cy="12" r="1.5" fill="currentColor" />
+        <circle cx="14" cy="12" r="1.5" fill="currentColor" />
+        <line x1="14.5" y1="5.5" x2="9.5" y2="18.5" stroke="currentColor" strokeWidth="1.3" strokeDasharray="2.5 2" />
       </svg>
     ),
   },

@@ -56,3 +56,10 @@ describe('line isLengthLocked', () => {
     expect(linePlugin.isLengthLocked!({ ...baseProps, lengthLocked: true })).toBe(true);
   });
 });
+
+describe('line isAngleLocked', () => {
+  it('既定はfalse、angleLocked:trueでtrueを返す', () => {
+    expect(linePlugin.isAngleLocked!(baseProps)).toBe(false);
+    expect(linePlugin.isAngleLocked!({ ...baseProps, angleLocked: true })).toBe(true);
+  });
+});

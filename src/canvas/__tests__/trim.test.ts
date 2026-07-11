@@ -277,6 +277,151 @@ describe('computeTrimKeeps: 曲線カッター(円⇔楕円の相互トリム)',
   });
 });
 
+describe("computeTrimKeeps mode:'split'(分割: クリック区間も先頭のkeepとして残す)", () => {
+  it('線分: 2本の切断線の間をクリックすると3本に分かれ、クリック断片が先頭', () => {
+    const objects: SceneObjects = {
+      L: lineObj('L', 100, tf(0, 0)),
+      A: lineObj('A', 100, tf(-20, 0, 90)),
+      B: lineObj('B', 100, tf(20, 0, 90)),
+    };
+    const keeps = computeTrimKeeps(
+      objects,
+      registry,
+      'L',
+      { x: 0, y: 0 },
+      { kind: 'segment', targetId: 'L', segIndex: 0 },
+      'split',
+    );
+    expect(keeps).toEqual([
+      { kind: 'segment', from: 0.3, to: 0.7 },
+      { kind: 'segment', from: 0, to: 0.3 },
+      { kind: 'segment', from: 0.7, to: 1 },
+    ]);
+
+    const pieces = (linePlugin as AnyPlugin).trim!(objects.L.props, objects.L.transform, keeps!);
+    expect(pieces).toHaveLength(3);
+    // 先頭=クリック断片(中央40px)。元IDを引き継ぎ、分割後そのまま点線化できる
+    expect((pieces![0].props as { length: number }).length).toBeCloseTo(40);
+    expect(pieces![0].transform.x).toBeCloseTo(0);
+    expect((pieces![1].props as { length: number }).length).toBeCloseTo(30);
+    expect((pieces![2].props as { length: number }).length).toBeCloseTo(30);
+  });
+
+  it('線分: 切断線1本の端側をクリックすると2本に分かれる', () => {
+    const objects: SceneObjects = {
+      L: lineObj('L', 100, tf(0, 0)),
+      C: lineObj('C', 100, tf(0, 0, 90)),
+    };
+    const keeps = computeTrimKeeps(
+      objects,
+      registry,
+      'L',
+      { x: 20, y: 0 },
+      { kind: 'segment', targetId: 'L', segIndex: 0 },
+      'split',
+    );
+    expect(keeps).toEqual([
+      { kind: 'segment', from: 0.5, to: 1 },
+      { kind: 'segment', from: 0, to: 0.5 },
+    ]);
+  });
+
+  it('円: 2交点で2つの円弧に分かれる(クリック弧が先頭)', () => {
+    // 半径40の円を、中心を通る縦線(交点 90°/270°)で分割。右(角度0°)をクリック
+    const objects: SceneObjects = {
+      O: circleObj('O', 40, tf(0, 0)),
+      C: lineObj('C', 100, tf(0, 0, 90)),
+    };
+    const keeps = computeTrimKeeps(
+      objects,
+      registry,
+      'O',
+      { x: 40, y: 0 },
+      { kind: 'circle', targetId: 'O', t: 0 },
+      'split',
+    );
+    expect(keeps).toEqual([
+      { kind: 'arc', fromDeg: 270, toDeg: 90 },
+      { kind: 'arc', fromDeg: 90, toDeg: 270 },
+    ]);
+
+    const pieces = (circlePlugin as AnyPlugin).trim!(objects.O.props, objects.O.transform, keeps!);
+    expect(pieces).toHaveLength(2);
+    pieces!.forEach((pc) => expect(pc.pluginId).toBe('core.arc'));
+    // 先頭=クリックした右半分(-90°→90°、角度0°を含む)
+    const p0 = pieces![0].props as { startAngle: number; endAngle: number };
+    expect(p0.startAngle).toBeCloseTo(-90);
+    expect(p0.endAngle).toBeCloseTo(90);
+  });
+
+  it('円弧: 掃引の内側の交点で分かれる(クリック区間が先頭)', () => {
+    // 0°→180°の上半円弧(半径40)を、中心を通る縦線(交点90°)で分割。45°側をクリック
+    const objects: SceneObjects = {
+      A: {
+        id: 'A',
+        pluginId: 'core.arc',
+        version: 1,
+        transform: tf(0, 0),
+        zIndex: 1,
+        locked: false,
+        visible: true,
+        props: { ...arcPlugin.defaultProps, radius: 40, startAngle: 0, endAngle: 180 },
+      },
+      C: lineObj('C', 200, tf(0, 0, 90)),
+    };
+    const keeps = computeTrimKeeps(
+      objects,
+      registry,
+      'A',
+      { x: 28, y: 28 },
+      { kind: 'circle', targetId: 'A', t: 45 },
+      'split',
+    );
+    expect(keeps).toEqual([
+      { kind: 'arc', fromDeg: 0, toDeg: 90 },
+      { kind: 'arc', fromDeg: 90, toDeg: 180 },
+    ]);
+
+    const pieces = (arcPlugin as AnyPlugin).trim!(objects.A.props, objects.A.transform, keeps!);
+    expect(pieces).toHaveLength(2);
+  });
+
+  it('切断相手が無ければ null(no-op、トリムと同じ)', () => {
+    const objects: SceneObjects = { L: lineObj('L', 100, tf(0, 0)) };
+    const keeps = computeTrimKeeps(
+      objects,
+      registry,
+      'L',
+      { x: 20, y: 0 },
+      { kind: 'segment', targetId: 'L', segIndex: 0 },
+      'split',
+    );
+    expect(keeps).toBeNull();
+  });
+
+  it('四角形: クリック辺の分割断片が先頭に来て全辺が線分化される', () => {
+    // 幅100高さ60の四角形。上辺(y=-30)を x=±20 で横切る円で分割し、辺中央をクリック
+    const objects: SceneObjects = {
+      R: rectObj('R', 100, 60, tf(0, 0)),
+      C: circleObj('C', 20, tf(0, -30)),
+    };
+    const pick = { kind: 'segment', targetId: 'R', segIndex: 0 } as const;
+    const keeps = computeTrimKeeps(objects, registry, 'R', { x: 0, y: -30 }, pick, 'split');
+    expect(keeps).toEqual([
+      { kind: 'segment', from: 0.3, to: 0.7 },
+      { kind: 'segment', from: 0, to: 0.3 },
+      { kind: 'segment', from: 0.7, to: 1 },
+    ]);
+
+    const pieces = (rectPlugin as AnyPlugin).trim!(objects.R.props, objects.R.transform, keeps!, pick);
+    // クリック辺=3本 + 残り3辺=3本 = 6本の線分に分解。先頭=クリック断片(中央40px)
+    expect(pieces).toHaveLength(6);
+    expect((pieces![0].props as { length: number }).length).toBeCloseTo(40);
+    expect(pieces![0].transform.x).toBeCloseTo(0);
+    expect(pieces![0].transform.y).toBeCloseTo(-30);
+  });
+});
+
 describe('computeTrimKeeps + rect.trim', () => {
   it('四角形はクリックした辺を交点で切り、全辺を線分に分解する', () => {
     // 幅100高さ60の四角形。上辺(y=-30)を x=±20 で2回横切る円で切り、辺中央をクリック

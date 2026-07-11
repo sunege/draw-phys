@@ -139,21 +139,22 @@ export const rectPlugin: PhysicsObjectPlugin<RectProps> = {
       return { pluginId: 'core.line', props: { ...base, length: seg.length }, transform: seg.transform };
     };
     const pieces: TrimPiece[] = [];
-    rectEdges(props).forEach(([la, lb], i) => {
-      if (i === pick.segIndex) {
-        // クリックした辺: 残す区間[from,to]だけを線分化(端の短縮=1本, 中間削除=2本)
-        for (const keep of keeps) {
-          if (keep.kind !== 'segment') continue;
-          const p0 = { x: la.x + (lb.x - la.x) * keep.from, y: la.y + (lb.y - la.y) * keep.from };
-          const p1 = { x: la.x + (lb.x - la.x) * keep.to, y: la.y + (lb.y - la.y) * keep.to };
-          const line = makeLine(p0, p1);
-          if (line) pieces.push(line);
-        }
-      } else {
-        // 他の辺: まるごと線分化
-        const line = makeLine(la, lb);
-        if (line) pieces.push(line);
-      }
+    const edges = rectEdges(props);
+    // クリックした辺: 残す区間[from,to]だけを線分化(keeps順のまま先頭に置き、
+    // 分割でクリックした断片=keeps先頭が元IDを引き継ぐようにする)
+    const [ca, cb] = edges[pick.segIndex];
+    for (const keep of keeps) {
+      if (keep.kind !== 'segment') continue;
+      const p0 = { x: ca.x + (cb.x - ca.x) * keep.from, y: ca.y + (cb.y - ca.y) * keep.from };
+      const p1 = { x: ca.x + (cb.x - ca.x) * keep.to, y: ca.y + (cb.y - ca.y) * keep.to };
+      const line = makeLine(p0, p1);
+      if (line) pieces.push(line);
+    }
+    // 他の辺: まるごと線分化
+    edges.forEach(([la, lb], i) => {
+      if (i === pick.segIndex) return;
+      const line = makeLine(la, lb);
+      if (line) pieces.push(line);
     });
     return pieces;
   },

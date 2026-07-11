@@ -45,6 +45,7 @@ function Num({
         min={min}
         max={max}
         step={step}
+        onFocus={(e) => e.currentTarget.select()}
         onChange={(e) => {
           const n = Number(e.target.value);
           if (!Number.isNaN(n)) onChange(n);
@@ -181,8 +182,18 @@ function OffsetPair({
     <div className={styles.field} title="ラベルの位置補正(px)。キャンバス上のドラッグでも動かせる">
       <span className={styles.label}>{label}</span>
       <span className={styles.pair}>
-        <input type="number" value={dx} onChange={(e) => handle(e.target.value, dy, true)} />
-        <input type="number" value={dy} onChange={(e) => handle(e.target.value, dx, false)} />
+        <input
+          type="number"
+          value={dx}
+          onFocus={(e) => e.currentTarget.select()}
+          onChange={(e) => handle(e.target.value, dy, true)}
+        />
+        <input
+          type="number"
+          value={dy}
+          onFocus={(e) => e.currentTarget.select()}
+          onChange={(e) => handle(e.target.value, dx, false)}
+        />
       </span>
     </div>
   );
@@ -264,11 +275,13 @@ function FunctionCard({
             <input
               type="number"
               value={plot.domain.min}
+              onFocus={(e) => e.currentTarget.select()}
               onChange={(e) => setDomain(e.target.value, 'min')}
             />
             <input
               type="number"
               value={plot.domain.max}
+              onFocus={(e) => e.currentTarget.select()}
               onChange={(e) => setDomain(e.target.value, 'max')}
             />
           </span>

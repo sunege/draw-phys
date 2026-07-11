@@ -1,4 +1,4 @@
-import { normalizeAngle180 } from '../../core/geometry';
+import { normalizeAngle180, normalizeAngle360 } from '../../core/geometry';
 import type { PhysicsObjectPlugin, TrimPiece } from '../../core/plugin';
 import { CenterMark } from './CenterMark';
 import { PatternDefs } from './PatternDefs';
@@ -92,12 +92,13 @@ export const circlePlugin: PhysicsObjectPlugin<CircleProps> = {
   ],
   getCircle: (props) => ({ center: { x: 0, y: 0 }, radius: props.radius }),
   applyScale: (props, fx) => ({ ...props, radius: props.radius * fx }),
-  // トリム: 円は円弧へ種別変更する。残す区間(削除ギャップの補角)を持つ円弧を作る
+  // トリム/分割: 円は円弧へ種別変更する。残す各区間を円弧にする(トリム=補角1本, 分割=2本)
   trim(props, transform, keeps): TrimPiece[] {
-    const keep = keeps[0];
-    if (!keep || keep.kind !== 'arc') return [];
-    return [
-      {
+    const pieces: TrimPiece[] = [];
+    for (const keep of keeps) {
+      if (keep.kind !== 'arc') continue;
+      if ((normalizeAngle360(keep.toDeg - keep.fromDeg) || 360) < 0.5) continue; // ごく短い残片は捨てる
+      pieces.push({
         pluginId: 'core.arc',
         props: {
           radius: props.radius,
@@ -111,8 +112,9 @@ export const circlePlugin: PhysicsObjectPlugin<CircleProps> = {
           centerSize: props.centerSize,
         },
         transform,
-      },
-    ];
+      });
+    }
+    return pieces;
   },
   capabilities: { rotatable: false, scalable: 'uniform', construction: true },
   placement: 'click',

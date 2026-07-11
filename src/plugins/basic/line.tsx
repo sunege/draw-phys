@@ -25,6 +25,8 @@ interface LineProps {
   tangentOffset?: number;
   /** ONで端点ドラッグ時に長さを固定し角度のみ変える(該当端点はグリッドスナップ無効) */
   lengthLocked?: boolean;
+  /** ONで端点ドラッグ時に角度を固定し長さのみ変える(該当端点はグリッドスナップ無効) */
+  angleLocked?: boolean;
 }
 
 export const linePlugin: PhysicsObjectPlugin<LineProps> = {
@@ -43,6 +45,7 @@ export const linePlugin: PhysicsObjectPlugin<LineProps> = {
     strokeWidth: 1,
     lineStyle: 'solid',
     lengthLocked: false,
+    angleLocked: false,
   },
   defaultSize: { width: 100, height: 1 },
   propertySchema: [
@@ -51,6 +54,7 @@ export const linePlugin: PhysicsObjectPlugin<LineProps> = {
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0.5, step: 0.5 },
     lineStyleField,
     { key: 'lengthLocked', label: '長さ固定', type: 'boolean' },
+    { key: 'angleLocked', label: '角度固定', type: 'boolean' },
   ],
   Renderer: ({ props }) => {
     const half = props.length / 2;
@@ -95,6 +99,7 @@ export const linePlugin: PhysicsObjectPlugin<LineProps> = {
   getAnchorPoint: tangentAnchorPoint,
   dragEndpointConstrained: dragTangentEndpoint,
   isLengthLocked: (props) => !!props.lengthLocked,
+  isAngleLocked: (props) => !!props.angleLocked,
   // トリム: 残す各区間[from,to]を新しい線分として作り直す(端の短縮=1本, 中間削除=2本に分割)
   trim(props, transform, keeps) {
     const L = props.length;

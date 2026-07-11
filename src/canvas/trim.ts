@@ -142,6 +142,12 @@ function ellipseCutterPoints(
 }
 
 /**
+ * トリム/分割のモード。トリムはクリック区間を削除、分割はクリック区間も
+ * 別オブジェクトとして残す(keepsの先頭に置き、元IDを引き継がせる)。
+ */
+export type TrimMode = 'trim' | 'split';
+
+/**
  * 円/楕円(cyclicまたは既存円弧/楕円弧)を、収集した交点角度とクリック角度から
  * 残す区間(TrimKeep[])へ解決する。円ブランチ・楕円ブランチ共通(角度の意味だけが違う)。
  */
@@ -151,6 +157,7 @@ function resolveArcKeeps(
   hasRange: boolean,
   start: number | undefined,
   sweepAll: number,
+  mode: TrimMode,
 ): TrimKeep[] | null {
   if (!hasRange || sweepAll >= 359.999) {
     // 完全な円/楕円: cyclic。2交点以上必要。残すのは削除ギャップの補角
@@ -158,8 +165,10 @@ function resolveArcKeeps(
     const removal = bracketCyclic(angles, clickAngle);
     if (!removal) return null;
     const [lo, hi] = removal;
-    // 残すのは削除ギャップ(増加方向 lo→hi)の補角 = 増加方向 hi→lo
-    return [{ kind: 'arc', fromDeg: hi, toDeg: lo }];
+    // 残すのは削除ギャップ(増加方向 lo→hi)の補角 = 増加方向 hi→lo。
+    // 分割ではクリック区間 lo→hi も先頭に残す(2つの弧に分かれる)
+    const rest: TrimKeep = { kind: 'arc', fromDeg: hi, toDeg: lo };
+    return mode === 'split' ? [{ kind: 'arc', fromDeg: lo, toDeg: hi }, rest] : [rest];
   }
 
   // 円弧/楕円弧: 掃引範囲[start, start+sweep]を「巻き戻さない」座標に展開して線形処理
@@ -174,14 +183,16 @@ function resolveArcKeeps(
   if (!removal) return null;
   const [lo, hi] = removal;
   const keeps: TrimKeep[] = [];
+  if (mode === 'split' && hi - lo > 1e-4) keeps.push({ kind: 'arc', fromDeg: lo, toDeg: hi });
   if (lo - s > 1e-4) keeps.push({ kind: 'arc', fromDeg: s, toDeg: lo });
   if (s + sweepAll - hi > 1e-4) keeps.push({ kind: 'arc', fromDeg: hi, toDeg: s + sweepAll });
   return keeps;
 }
 
 /**
- * トリムで残す区間(TrimKeep[])を算出する。トリムできなければ null。
- * クリック曲線と全切断相手の交点を求め、クリック位置を挟む区間を削除する。
+ * トリム/分割で残す区間(TrimKeep[])を算出する。できなければ null。
+ * クリック曲線と全切断相手の交点を求め、クリック位置を挟む区間を
+ * トリムでは削除、分割では先頭のkeepとして残す(交点で別オブジェクトに分ける)。
  * 交点が無い(境界を作れない)場合は null(no-op)。
  */
 export function computeTrimKeeps(
@@ -190,6 +201,7 @@ export function computeTrimKeeps(
   clickedId: string,
   world: Point,
   pick: EdgePick,
+  mode: TrimMode = 'trim',
 ): TrimKeep[] | null {
   const clicked = objects[clickedId];
   const clickedPlugin = clicked && registry.get(clicked.pluginId);
@@ -216,6 +228,7 @@ export function computeTrimKeeps(
     if (!removal) return null;
     const [lo, hi] = removal;
     const keeps: TrimKeep[] = [];
+    if (mode === 'split' && hi - lo > 1e-4) keeps.push({ kind: 'segment', from: lo, to: hi });
     if (lo > 1e-4) keeps.push({ kind: 'segment', from: 0, to: lo });
     if (hi < 1 - 1e-4) keeps.push({ kind: 'segment', from: hi, to: 1 });
     return keeps;
@@ -242,7 +255,7 @@ export function computeTrimKeeps(
         angles.push(angleOfVector({ x: p.x - center.x, y: p.y - center.y }) - rotation);
       }
     }
-    return resolveArcKeeps(angles, pick.t, hasRange, circle.startAngle, sweepAll);
+    return resolveArcKeeps(angles, pick.t, hasRange, circle.startAngle, sweepAll, mode);
   }
 
   // クリックした楕円/楕円弧をトリム(カッターは線分系オブジェクトのみ対応)
@@ -272,5 +285,5 @@ export function computeTrimKeeps(
       angles.push(ellipseParamAngle(center, radiusX, radiusY, rotation, p));
     }
   }
-  return resolveArcKeeps(angles, pick.t, hasRange, ellipse.startAngle, sweepAll);
+  return resolveArcKeeps(angles, pick.t, hasRange, ellipse.startAngle, sweepAll, mode);
 }

@@ -56,6 +56,7 @@ import { cylinderPlugin } from './thermo/cylinder';
 import { flamePlugin } from './thermo/flame';
 import { gasMoleculesPlugin } from './thermo/gasMolecules';
 import { thermometerPlugin } from './thermo/thermometer';
+import { planeWavePlugin } from './waves/planeWave';
 import { sineWavePlugin } from './waves/sineWave';
 import { tuningForkPlugin } from './waves/tuningFork';
 import { wavefrontPlugin } from './waves/wavefront';
@@ -119,6 +120,7 @@ export function registerStandardPlugins(): void {
   // 波動
   pluginRegistry.register(sineWavePlugin);
   pluginRegistry.register(wavefrontPlugin);
+  pluginRegistry.register(planeWavePlugin);
   pluginRegistry.register(tuningForkPlugin);
   // 光学
   pluginRegistry.register(convexLensPlugin);

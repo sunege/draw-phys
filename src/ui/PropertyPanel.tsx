@@ -243,6 +243,7 @@ function FieldInput({
           step={field.step}
           disabled={disabled}
           title={disabled ? disabledTitle : undefined}
+          onFocus={(e) => e.currentTarget.select()}
           onChange={(e) => {
             const n = Number(e.target.value);
             if (!Number.isNaN(n)) onChange(n);
@@ -419,6 +420,7 @@ export function PropertyPanel() {
             type="number"
             step={1}
             value={displayAngle}
+            onFocus={(e) => e.currentTarget.select()}
             onChange={(e) => {
               const n = Number(e.target.value);
               if (!Number.isNaN(n)) setRotation(n);

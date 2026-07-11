@@ -4,6 +4,7 @@ import type { AnyPlugin } from '../../../core/plugin';
 import { identityTransform } from '../../../core/types';
 import { inclinePlugin } from '../../mechanics/incline';
 import { pulleyPlugin } from '../../mechanics/pulley';
+import { planeWavePlugin } from '../../waves/planeWave';
 import { sineWavePlugin } from '../../waves/sineWave';
 import { wavefrontPlugin } from '../../waves/wavefront';
 import { concaveMirrorPlugin, convexMirrorPlugin } from '../curvedMirror';
@@ -24,6 +25,7 @@ const plugins: AnyPlugin[] = [
   prismPlugin,
   sineWavePlugin,
   wavefrontPlugin,
+  planeWavePlugin,
   pulleyPlugin,
   inclinePlugin,
 ];

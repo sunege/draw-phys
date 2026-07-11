@@ -70,6 +70,7 @@ import {
   MIRROR_TOOL,
   PARALLEL_TOOL,
   PERPENDICULAR_TOOL,
+  SPLIT_TOOL,
   SYMMETRY_TOOL,
   TANGENT_TOOL,
   TRIM_TOOL,
@@ -82,6 +83,7 @@ import {
   computeRotationAboutPivot,
   computeScaleDrag,
   computeScaleToProps,
+  projectOntoFixedAngle,
   projectOntoFixedRadius,
   type HandleDir,
 } from './transformMath';
@@ -796,6 +798,7 @@ export function CanvasStage() {
       activeTool === SYMMETRY_TOOL ||
       activeTool === MIRROR_TOOL ||
       activeTool === TRIM_TOOL ||
+      activeTool === SPLIT_TOOL ||
       activeTool === GRAPH_RANGE_TOOL;
     if (opTool && !parallelInit && !tangentInit && !coincidentInit && !mirrorInit && !symmetryInit) {
       doc.clearSelection();
@@ -846,6 +849,8 @@ export function CanvasStage() {
       );
     } else if (activeTool === TRIM_TOOL) {
       setHint({ title: 'トリム', message: '切り取る線・円弧・円のエッジをクリック（Escで終了）' });
+    } else if (activeTool === SPLIT_TOOL) {
+      setHint({ title: '分割', message: '交点で分けたい線・円弧・円のエッジをクリック（Escで終了）' });
     } else if (activeTool === GRAPH_RANGE_TOOL) {
       setHint({ title: 'グラフ範囲', message: 'グラフ内をドラッグして表示範囲を指定（Escで終了）' });
     } else {
@@ -1229,19 +1234,32 @@ export function CanvasStage() {
       return;
     }
 
-    // トリムモード: クリックした線・円弧・円のエッジを、交点から交点まで切り取る。
+    // トリム/分割モード: クリックした線・円弧・円のエッジを、交点から交点まで
+    // トリムは切り取り、分割は別オブジェクトとして切り分ける。
     // 対象は「クリック点に一番近いエッジを持つ図形」で選ぶ(前面図形のfillに覆われた
     // 背面の円弧も、クリック近傍ならそちらを切れる)
-    if (activeTool === TRIM_TOOL) {
+    if (activeTool === TRIM_TOOL || activeTool === SPLIT_TOOL) {
+      const splitting = activeTool === SPLIT_TOOL;
       const target = pickTrimTarget(doc.objects, world, 10 / zoom);
       if (!target) return;
       const trimPlugin = pluginRegistry.get(target.obj.pluginId);
       if (!trimPlugin?.trim) return;
-      const keeps = computeTrimKeeps(doc.objects, pluginRegistry, target.obj.id, world, target.pick);
+      const keeps = computeTrimKeeps(
+        doc.objects,
+        pluginRegistry,
+        target.obj.id,
+        world,
+        target.pick,
+        splitting ? 'split' : 'trim',
+      );
       if (!keeps) return;
       const pieces = trimPlugin.trim(target.obj.props, target.obj.transform, keeps, target.pick);
-      if (pieces) doc.applyTrim(target.obj.id, pieces);
-      // トリムモードは維持(連続してトリムできる。Escで終了)
+      if (pieces) {
+        doc.applyTrim(target.obj.id, pieces);
+        // 分割: クリックした断片(keeps先頭=元IDを引き継ぐ)だけを選択→そのまま点線化などができる
+        if (splitting) doc.setSelection([target.obj.id]);
+      }
+      // トリム/分割モードは維持(連続して操作できる。Escで終了)
       return;
     }
 
@@ -1742,6 +1760,40 @@ export function CanvasStage() {
         props: res.props,
         ...(refs ? { refs } : {}),
       });
+      setGuides({ marker: snapped.marker });
+      drag.moved = true;
+      return;
+    }
+
+    if (
+      drag.mode === 'endpoint' &&
+      !drag.endpointPin &&
+      drag.plugin.getEndpoints &&
+      drag.plugin.setFromEndpoints &&
+      drag.plugin.isAngleLocked?.(drag.beforeProps)
+    ) {
+      // 角度固定: 反対端を中心に元の向きの直線上でのみ動く(グリッドスナップは無効、他オブジェクトへは有効)
+      const eps = drag.plugin.getEndpoints(drag.beforeProps);
+      const worldEps = eps.map((p) => localToWorld(p, drag.before));
+      const anchor = worldEps[1 - drag.end];
+      const dv = { x: worldEps[drag.end].x - anchor.x, y: worldEps[drag.end].y - anchor.y };
+      const dl = Math.hypot(dv.x, dv.y) || 1;
+      const direction = { x: dv.x / dl, y: dv.y / dl };
+      const snapped = snapEndpoint({
+        point: world,
+        objects: doc.objects,
+        registry: pluginRegistry,
+        excludeIds: new Set([drag.id]),
+        snapEnabled,
+        gridSize,
+        threshold: 8 / zoom,
+        gridEnabled: false,
+      });
+      const target = projectOntoFixedAngle(anchor, direction, snapped.point);
+      const a = drag.end === 0 ? target : anchor;
+      const b = drag.end === 1 ? target : anchor;
+      const res = drag.plugin.setFromEndpoints(drag.beforeProps, a, b);
+      doc.setObjectTransient(drag.id, { transform: res.transform, props: res.props });
       setGuides({ marker: snapped.marker });
       drag.moved = true;
       return;

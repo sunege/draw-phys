@@ -251,6 +251,12 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
    */
   isLengthLocked?(props: P): boolean;
   /**
+   * 角度固定が有効かどうか(線分系オブジェクト用)。trueを返すと端点ドラッグ時に
+   * 角度を保ったまま長さのみ変える特殊編集になり、その端点はグリッドスナップが無効化される
+   * (他オブジェクトへのスナップは有効のまま)。
+   */
+  isAngleLocked?(props: P): boolean;
+  /**
    * クリック/ドラッグ配置で生成された直後に、同種(同pluginId)の既存オブジェクトに
    * 応じて初期propsを補正する(任意)。siblings は既存の同種オブジェクトの props 配列
    * (新規自身は含まない)。例: 用紙枠が末尾の次のページ番号を自動採番する。
@@ -289,13 +295,14 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
    */
   createFromEdge?(pick: EdgePick): ObjectRef[] | null;
   /**
-   * トリム(CAD的な部分削除)。本体が算出した「残す区間 keeps」から、
-   * トリム後に残る部品(TrimPiece)を組み立てて返す。
+   * トリム(CAD的な部分削除)・分割。本体が算出した「残す区間 keeps」から、
+   * 残る部品(TrimPiece)を組み立てて返す。keeps 1件=1部品が原則。
    * - keeps.length === 0 … 全消し(呼び出し側が対象を削除)
    * - 1件 … 端の区間を削った/角度を詰めた(自身を更新)
-   * - 2件 … 分割(自身+新規1個)
+   * - 2件以上 … 交点で複数部品に分かれる(先頭が元ID、残りは新規オブジェクト。
+   *   分割ツールはクリック区間も先頭のkeepとして含めて呼ぶ)
    * getSegments を持つ線分系は kind:'segment'、getCircle を持つ円・円弧は kind:'arc' で呼ばれる。
-   * これを実装したプラグインだけがトリム対象になる。
+   * これを実装したプラグインだけがトリム・分割の対象になる。
    * pick はクリックしたエッジ(多辺の四角形など、どの線分を切るか区別が要る場合に使う)。
    */
   trim?(props: P, transform: Transform, keeps: TrimKeep[], pick?: EdgePick): TrimPiece[] | null;

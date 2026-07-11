@@ -8,6 +8,7 @@ import {
   computeScaleToProps,
   fromDisplayAngle,
   normalizeAngle,
+  projectOntoFixedAngle,
   projectOntoFixedRadius,
   toDisplayAngle,
 } from '../transformMath';
@@ -190,5 +191,24 @@ describe('projectOntoFixedRadius', () => {
   it('targetがanchorと一致する退化ケースは水平(角度0)にフォールバックする', () => {
     const p = projectOntoFixedRadius({ x: 5, y: 5 }, 30, { x: 5, y: 5 });
     expect(p).toEqual({ x: 35, y: 5 });
+  });
+});
+
+describe('projectOntoFixedAngle', () => {
+  it('directionの直線上へtargetを射影し、向きは変わらない', () => {
+    // direction=(1,0) の水平線上へ、少し上にずれたtargetを射影
+    const p = projectOntoFixedAngle({ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 80, y: 20 });
+    expect(p).toEqual({ x: 80, y: 0 });
+  });
+
+  it('directionと逆方向へドラッグしても最小長でクランプされ、向きは反転しない', () => {
+    const p = projectOntoFixedAngle({ x: 0, y: 0 }, { x: 1, y: 0 }, { x: -50, y: 0 });
+    expect(p).toEqual({ x: 1, y: 0 });
+  });
+
+  it('anchorからdirection方向へ離れるほど射影後の距離も伸びる', () => {
+    const p = projectOntoFixedAngle({ x: 10, y: 10 }, { x: 0, y: 1 }, { x: 15, y: 90 });
+    expect(p.x).toBeCloseTo(10);
+    expect(p.y).toBeCloseTo(90);
   });
 });

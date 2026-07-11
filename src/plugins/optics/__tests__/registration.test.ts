@@ -22,7 +22,9 @@ describe('光学・波動・力学追加プラグインの登録', () => {
     );
 
     const waves = (byCat.get('波動') ?? []).map((p) => p.id).sort();
-    expect(waves).toEqual(['wave.sine', 'wave.tuningFork', 'wave.wavefront'].sort());
+    expect(waves).toEqual(
+      ['wave.sine', 'wave.tuningFork', 'wave.wavefront', 'wave.planeWave'].sort(),
+    );
 
     const mech = (byCat.get('力学') ?? []).map((p) => p.id);
     expect(mech).toContain('mech.pulley');
