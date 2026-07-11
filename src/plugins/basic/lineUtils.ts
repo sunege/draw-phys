@@ -97,6 +97,14 @@ export function hitStrokeWidth(strokeWidth: number): number {
   return Math.max(strokeWidth, 12);
 }
 
+/** 主線に沿った斜線ハッチ(床・鏡・斜面の「裏側」表現)のローカルx位置 */
+export function hatchPositions(length: number, spacing: number): number[] {
+  const half = length / 2;
+  const xs: number[] = [];
+  for (let x = -half + spacing; x <= half; x += spacing) xs.push(x);
+  return xs;
+}
+
 /**
  * 接線拘束をもてる線分系プラグイン(線・矢印・ベクトル)の共通props。
  * tangentOffset は線中心から接点までの符号付き距離(線方向)。0で接点=中点、

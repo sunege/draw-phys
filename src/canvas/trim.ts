@@ -7,6 +7,8 @@ import {
   bracketCyclic,
   bracketLinear,
   circleCircle,
+  circleEllipse,
+  ellipseEllipse,
   ellipseParamAngle,
   pointOnArc,
   pointOnEllipticalArc,
@@ -89,6 +91,56 @@ function clamp01(t: number): number {
   return Math.max(0, Math.min(1, t));
 }
 
+/** カッターが円弧/楕円弧のとき、交点pがその角度範囲内にあるか(全円/全楕円/線分は常にtrue) */
+function cutterInRange(cut: WorldCurve, p: Point): boolean {
+  if (cut.kind === 'circle' && cut.start != null && cut.end != null) {
+    return pointOnArc(cut.center, cut.rotation, cut.start, cut.end, p);
+  }
+  if (cut.kind === 'ellipse' && cut.start != null && cut.end != null) {
+    return pointOnEllipticalArc(cut.center, cut.radiusX, cut.radiusY, cut.rotation, cut.start, cut.end, p);
+  }
+  return true;
+}
+
+/** 線分AB × カッター曲線 の交点(ワールド, 角度範囲チェック前) */
+function segmentCutterPoints(a: Point, b: Point, cut: WorldCurve): Point[] {
+  if (cut.kind === 'segment') {
+    const p = segmentSegment(a, b, cut.a, cut.b);
+    return p ? [p] : [];
+  }
+  if (cut.kind === 'circle') return segmentCircle(a, b, cut.center, cut.radius);
+  return segmentEllipse(a, b, cut.center, cut.radiusX, cut.radiusY, cut.rotation);
+}
+
+/** 円(center, radius) × カッター曲線 の交点(ワールド, 角度範囲チェック前) */
+function circleCutterPoints(center: Point, radius: number, cut: WorldCurve): Point[] {
+  if (cut.kind === 'segment') return segmentCircle(cut.a, cut.b, center, radius);
+  if (cut.kind === 'circle') return circleCircle(center, radius, cut.center, cut.radius);
+  return circleEllipse(center, radius, cut.center, cut.radiusX, cut.radiusY, cut.rotation);
+}
+
+/** 楕円(center, radiusX, radiusY, rotation) × カッター曲線 の交点(ワールド, 角度範囲チェック前) */
+function ellipseCutterPoints(
+  center: Point,
+  radiusX: number,
+  radiusY: number,
+  rotation: number,
+  cut: WorldCurve,
+): Point[] {
+  if (cut.kind === 'segment') return segmentEllipse(cut.a, cut.b, center, radiusX, radiusY, rotation);
+  if (cut.kind === 'circle') return circleEllipse(cut.center, cut.radius, center, radiusX, radiusY, rotation);
+  return ellipseEllipse(
+    center,
+    radiusX,
+    radiusY,
+    rotation,
+    cut.center,
+    cut.radiusX,
+    cut.radiusY,
+    cut.rotation,
+  );
+}
+
 /**
  * 円/楕円(cyclicまたは既存円弧/楕円弧)を、収集した交点角度とクリック角度から
  * 残す区間(TrimKeep[])へ解決する。円ブランチ・楕円ブランチ共通(角度の意味だけが違う)。
@@ -153,31 +205,9 @@ export function computeTrimKeeps(
     const clickT = clamp01(projectSegmentT(world, A, B));
     const params: number[] = [];
     for (const cut of cutters) {
-      if (cut.kind === 'segment') {
-        const p = segmentSegment(A, B, cut.a, cut.b);
-        if (p) params.push(projectSegmentT(p, A, B));
-      } else if (cut.kind === 'circle') {
-        for (const p of segmentCircle(A, B, cut.center, cut.radius)) {
-          if (
-            cut.start != null &&
-            cut.end != null &&
-            !pointOnArc(cut.center, cut.rotation, cut.start, cut.end, p)
-          ) {
-            continue;
-          }
-          params.push(projectSegmentT(p, A, B));
-        }
-      } else {
-        for (const p of segmentEllipse(A, B, cut.center, cut.radiusX, cut.radiusY, cut.rotation)) {
-          if (
-            cut.start != null &&
-            cut.end != null &&
-            !pointOnEllipticalArc(cut.center, cut.radiusX, cut.radiusY, cut.rotation, cut.start, cut.end, p)
-          ) {
-            continue;
-          }
-          params.push(projectSegmentT(p, A, B));
-        }
+      for (const p of segmentCutterPoints(A, B, cut)) {
+        if (!cutterInRange(cut, p)) continue;
+        params.push(projectSegmentT(p, A, B));
       }
     }
     const interior = params.filter((t) => t > 1e-4 && t < 1 - 1e-4);
@@ -203,25 +233,12 @@ export function computeTrimKeeps(
     const sweepAll = hasRange ? normalizeAngle360(circle.endAngle! - circle.startAngle!) || 360 : 360;
     const isArc = hasRange && sweepAll < 359.999;
 
-    // 交点をクリック対象ローカルの角度で集める
+    // 交点をクリック対象ローカルの角度で集める(切断相手は線分・円・楕円)
     const angles: number[] = [];
     for (const cut of cutters) {
-      const pts =
-        cut.kind === 'segment'
-          ? segmentCircle(cut.a, cut.b, center, radius)
-          : cut.kind === 'circle'
-            ? circleCircle(center, radius, cut.center, cut.radius)
-            : []; // 楕円カッターは対象外(交点なし扱い)
-      for (const p of pts) {
+      for (const p of circleCutterPoints(center, radius, cut)) {
         if (isArc && !pointOnArc(center, rotation, circle.startAngle!, circle.endAngle!, p)) continue;
-        if (
-          cut.kind === 'circle' &&
-          cut.start != null &&
-          cut.end != null &&
-          !pointOnArc(cut.center, cut.rotation, cut.start, cut.end, p)
-        ) {
-          continue;
-        }
+        if (!cutterInRange(cut, p)) continue;
         angles.push(angleOfVector({ x: p.x - center.x, y: p.y - center.y }) - rotation);
       }
     }
@@ -241,16 +258,17 @@ export function computeTrimKeeps(
   const sweepAll = hasRange ? normalizeAngle360(ellipse.endAngle! - ellipse.startAngle!) || 360 : 360;
   const isArc = hasRange && sweepAll < 359.999;
 
+  // 切断相手は線分・円・楕円(円/楕円は数値的に交点を求める)
   const angles: number[] = [];
   for (const cut of cutters) {
-    if (cut.kind !== 'segment') continue; // 円・楕円カッターは対応スコープ外
-    for (const p of segmentEllipse(cut.a, cut.b, center, radiusX, radiusY, rotation)) {
+    for (const p of ellipseCutterPoints(center, radiusX, radiusY, rotation, cut)) {
       if (
         isArc &&
         !pointOnEllipticalArc(center, radiusX, radiusY, rotation, ellipse.startAngle!, ellipse.endAngle!, p)
       ) {
         continue;
       }
+      if (!cutterInRange(cut, p)) continue;
       angles.push(ellipseParamAngle(center, radiusX, radiusY, rotation, p));
     }
   }

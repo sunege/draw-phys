@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { StorageAdapter, WorkspaceNode } from '../persistence/types';
 import { buildWorkspaceZip, isSceneDocument, parseWorkspaceZip } from '../persistence/zip';
+import { useLayoutStore } from '../state/layoutStore';
 import { useWorkspaceStore } from '../state/workspaceStore';
 import styles from './WorkspacePanel.module.css';
 
@@ -128,6 +129,8 @@ export function WorkspacePanel() {
   const setSearchQuery = useWorkspaceStore((s) => s.setSearchQuery);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const importInputRef = useRef<HTMLInputElement>(null);
+  const bottomHeight = useLayoutStore((s) => s.bottomHeight);
+  const bottomCollapsed = useLayoutStore((s) => s.bottomCollapsed);
 
   const store = useWorkspaceStore.getState();
 
@@ -244,7 +247,11 @@ export function WorkspacePanel() {
   };
 
   return (
-    <aside className={styles.panel}>
+    <aside
+      className={styles.panel}
+      data-collapsed={bottomCollapsed}
+      style={{ height: bottomCollapsed ? undefined : bottomHeight }}
+    >
       <div className={styles.toolbar}>
         <span className={styles.heading}>ワークスペース</span>
         <button type="button" onClick={onNewFile} title="新規ファイル">
@@ -279,23 +286,25 @@ export function WorkspacePanel() {
           onChange={(e) => setSearchQuery(e.target.value)}
         />
       </div>
-      <div className={styles.tree} onDragOver={(e) => e.preventDefault()} onDrop={onRootDrop}>
-        {matches ? (
-          matches.length > 0 ? (
-            matches.map((node) => (
+      {!bottomCollapsed && (
+        <div className={styles.tree} onDragOver={(e) => e.preventDefault()} onDrop={onRootDrop}>
+          {matches ? (
+            matches.length > 0 ? (
+              matches.map((node) => (
+                <NodeRow key={node.id} node={node} depth={0} expanded={expanded} toggle={toggle} />
+              ))
+            ) : (
+              <p className={styles.empty}>「{searchQuery}」に一致するファイルはありません</p>
+            )
+          ) : roots.length > 0 ? (
+            roots.map((node) => (
               <NodeRow key={node.id} node={node} depth={0} expanded={expanded} toggle={toggle} />
             ))
           ) : (
-            <p className={styles.empty}>「{searchQuery}」に一致するファイルはありません</p>
-          )
-        ) : roots.length > 0 ? (
-          roots.map((node) => (
-            <NodeRow key={node.id} node={node} depth={0} expanded={expanded} toggle={toggle} />
-          ))
-        ) : (
-          <p className={styles.empty}>ファイルがありません。「+ファイル」で作成してください</p>
-        )}
-      </div>
+            <p className={styles.empty}>ファイルがありません。「+ファイル」で作成してください</p>
+          )}
+        </div>
+      )}
     </aside>
   );
 }

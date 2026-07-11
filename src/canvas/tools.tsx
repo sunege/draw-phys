@@ -16,6 +16,7 @@ export const TANGENT_TOOL = 'tangent';
 export const PARALLEL_TOOL = 'parallel';
 export const PERPENDICULAR_TOOL = 'perpendicular';
 export const COINCIDENT_TOOL = 'coincident';
+export const MIDPOINT_TOOL = 'midpoint';
 export const SYMMETRY_TOOL = 'symmetry';
 export const TRIM_TOOL = 'trim';
 export const MIRROR_TOOL = 'mirror';
@@ -128,6 +129,19 @@ export const OPERATION_TOOLS: OperationTool[] = [
         <circle cx="9" cy="12" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
         <circle cx="15" cy="12" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
         <circle cx="12" cy="12" r="2.2" fill="currentColor" />
+      </svg>
+    ),
+  },
+  {
+    id: MIDPOINT_TOOL,
+    name: '中点',
+    category: '拘束',
+    Icon: () => (
+      <svg width="20" height="20" viewBox="0 0 24 24">
+        <line x1="3" y1="17" x2="21" y2="17" stroke="currentColor" strokeWidth="1.8" />
+        {/* 中点を指す三角マーカー+接続点 */}
+        <path d="M8.5 9 L15.5 9 L12 15 Z" fill="currentColor" />
+        <circle cx="12" cy="17" r="2" fill="currentColor" />
       </svg>
     ),
   },

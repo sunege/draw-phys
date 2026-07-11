@@ -1,9 +1,27 @@
 .panel {
-  width: 240px;
+  flex-shrink: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 12px;
   background: #ffffff;
-  border-left: 1px solid #dde1e7;
+}
+
+.panel[data-collapsed='true'] {
+  padding: 0;
+}
+
+.panel[data-narrow='true'] .field {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.panel[data-narrow='true'] .field input[type='number'],
+.panel[data-narrow='true'] .field input[type='text'],
+.panel[data-narrow='true'] .field select,
+.panel[data-narrow='true'] .field textarea {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .heading {

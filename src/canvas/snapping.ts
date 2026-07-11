@@ -1,14 +1,17 @@
 import { localSnapPoints } from '../core/constraints';
-import type { SceneObjects } from '../core/document';
+import type { SceneObject, SceneObjects } from '../core/document';
 import {
   angleOfVector,
   distance,
   localToWorld,
   nearestPointOnSegment,
+  pointOnEllipseAtParam,
   rectCorners,
   snapPoint,
   snapValue,
+  worldToLocal,
 } from '../core/geometry';
+import type { EllipseGeometry } from '../core/plugin';
 import type { PluginRegistry } from '../core/registry';
 import type { ObjectRef, Point, Transform } from '../core/types';
 
@@ -36,6 +39,27 @@ function worldSnapPoints(
   return locals.map((p) => localToWorld(p, transform));
 }
 
+
+/**
+ * 楕円周上で、ワールド点 point に対応するスナップ候補(ワールド点+局所媒介変数角度t)。
+ * u空間(楕円→単位円)で放射投影する: 対象ローカルへ移してから軸ごとに rx/ry で割った
+ * 向きの角度を t とし、その t の楕円周点をワールドへ戻す。回転・非一様スケールも
+ * transform 経由で正しく反映される。点が楕円上にあれば厳密に同じ点へ戻る。
+ */
+function ellipseCurveCandidate(
+  ellipse: EllipseGeometry,
+  transform: Transform,
+  point: Point,
+): { point: Point; t: number } {
+  const local = worldToLocal(point, transform);
+  const dir = { x: (local.x - ellipse.center.x) / ellipse.radiusX, y: (local.y - ellipse.center.y) / ellipse.radiusY };
+  const t = angleOfVector(dir);
+  const off = pointOnEllipseAtParam(ellipse.radiusX, ellipse.radiusY, t);
+  return {
+    point: localToWorld({ x: ellipse.center.x + off.x, y: ellipse.center.y + off.y }, transform),
+    t,
+  };
+}
 
 /** 端点吸着時に、吸着相手オブジェクトへ紐付けるための情報 */
 export type EndpointAttach = Pick<ObjectRef, 'targetId' | 'kind' | 'segIndex' | 't'>;
@@ -104,6 +128,9 @@ export function snapEndpoint(params: {
       };
       consider(edge, { targetId: id, kind: 'circle', t: worldAngle - obj.transform.rotation });
     }
+    // 楕円周候補(位置のみ。楕円は半径が一意でなく長さマーク等の吸着相手にならないため attach なし)
+    const ellipse = plugin?.getEllipse?.(obj.props);
+    if (ellipse) consider(ellipseCurveCandidate(ellipse, obj.transform, point).point);
     // 通常のスナップ点(端点・中心など。attachなし)
     for (const p of worldSnapPoints(objects, registry, id, obj.transform)) consider(p);
   }
@@ -126,7 +153,8 @@ export function snapEndpoint(params: {
 export type AnchorBind =
   | { targetId: string; kind: 'point'; pointIndex: number }
   | { targetId: string; kind: 'segment'; segIndex: number; t: number }
-  | { targetId: string; kind: 'circle'; t: number };
+  | { targetId: string; kind: 'circle'; t: number }
+  | { targetId: string; kind: 'ellipse'; t: number };
 
 export interface AnchorSnapResult {
   point: Point;
@@ -192,6 +220,12 @@ export function snapAnchorPoint(params: {
       const edge = { x: center.x + rw * (dir.x / norm), y: center.y + rw * (dir.y / norm) };
       consider(edge, { targetId: id, kind: 'circle', t: angleOfVector(dir) - obj.transform.rotation });
     }
+    // 楕円周上の最近点(局所媒介変数角度 t を記録)
+    const ellipse = plugin.getEllipse?.(obj.props);
+    if (ellipse) {
+      const cand = ellipseCurveCandidate(ellipse, obj.transform, point);
+      consider(cand.point, { targetId: id, kind: 'ellipse', t: cand.t });
+    }
   }
 
   const gridPt = snapPoint(point, gridSize);
@@ -199,6 +233,68 @@ export function snapAnchorPoint(params: {
   const { best } = holder;
   if (best && best.dist <= gridDist) return { point: best.p, marker: best.p, bind: best.bind };
   return { point: gridPt };
+}
+
+/**
+ * 一致点(coincidentの基準点)を、指定した対象オブジェクトの幾何上へ投影する。
+ * snapAnchorPoint と違い対象1つに限定し、しきい値なしの最近点を必ず返す
+ * (=一致点のドラッグがオブジェクトの外へ出ない)。グリッド・自由座標へは落ちない。
+ * 線分・円周は連続投影、離散スナップ点(角・端点・中心)は threshold 内なら優先する。
+ */
+export function projectAnchorPoint(params: {
+  point: Point;
+  target: SceneObject;
+  registry: PluginRegistry;
+  /** 離散スナップ点を線分/円より優先する距離 */
+  threshold: number;
+}): { point: Point; bind: AnchorBind } | null {
+  const { point, target, registry, threshold } = params;
+  const plugin = registry.get(target.pluginId);
+  if (!plugin) return null;
+
+  const holder: { best: { p: Point; dist: number; bind: AnchorBind } | null } = { best: null };
+  const consider = (p: Point, bind: AnchorBind) => {
+    const d = distance(point, p);
+    if (!holder.best || d < holder.best.dist) holder.best = { p, dist: d, bind };
+  };
+  // 線分上の最近点
+  plugin.getSegments?.(target.props)?.forEach((seg, segIndex) => {
+    const a = localToWorld(seg[0], target.transform);
+    const b = localToWorld(seg[1], target.transform);
+    const near = nearestPointOnSegment(point, a, b);
+    const len2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
+    const t = len2 < 1e-9 ? 0 : ((near.x - a.x) * (b.x - a.x) + (near.y - a.y) * (b.y - a.y)) / len2;
+    consider(near, { targetId: target.id, kind: 'segment', segIndex, t });
+  });
+  // 円周上の最近点
+  const circle = plugin.getCircle?.(target.props);
+  if (circle) {
+    const center = localToWorld(circle.center, target.transform);
+    const dir = { x: point.x - center.x, y: point.y - center.y };
+    const rw = circle.radius * Math.abs(target.transform.scaleX);
+    const norm = Math.hypot(dir.x, dir.y) || 1;
+    const edge = { x: center.x + rw * (dir.x / norm), y: center.y + rw * (dir.y / norm) };
+    consider(edge, { targetId: target.id, kind: 'circle', t: angleOfVector(dir) - target.transform.rotation });
+  }
+  // 楕円周上の最近点(局所媒介変数角度 t を記録)
+  const ellipse = plugin.getEllipse?.(target.props);
+  if (ellipse) {
+    const cand = ellipseCurveCandidate(ellipse, target.transform, point);
+    consider(cand.point, { targetId: target.id, kind: 'ellipse', t: cand.t });
+  }
+  // 離散スナップ点: threshold 内なら優先、連続候補が無いオブジェクトでは無条件の最近点
+  const discrete: { best: { p: Point; dist: number; bind: AnchorBind } | null } = { best: null };
+  localSnapPoints(plugin, target.props).forEach((local, index) => {
+    const p = localToWorld(local, target.transform);
+    const d = distance(point, p);
+    if (!discrete.best || d < discrete.best.dist) {
+      discrete.best = { p, dist: d, bind: { targetId: target.id, kind: 'point', pointIndex: index } };
+    }
+  });
+  const d = discrete.best;
+  if (d && (d.dist <= threshold || !holder.best)) return { point: d.p, bind: d.bind };
+  const { best } = holder;
+  return best ? { point: best.p, bind: best.bind } : null;
 }
 
 export interface PointSnapResult {

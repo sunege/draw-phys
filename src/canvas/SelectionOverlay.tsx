@@ -1,4 +1,4 @@
-import { findRotationLock } from '../core/constraints';
+import { findTangentAnchor, isRotationConstrained } from '../core/constraints';
 import type { SceneObject } from '../core/document';
 import { unionRects, worldBounds } from '../core/geometry';
 import { pluginRegistry } from '../core/registry';
@@ -85,13 +85,14 @@ function SingleSelection({ obj, zoom }: { obj: SceneObject; zoom: number }) {
   const box = scaledBounds(plugin.getBounds(obj.props), t.scaleX, t.scaleY);
   const handleSize = 8 / zoom;
   const scalable = plugin.capabilities?.scalable ?? 'both';
-  // 平行/垂直拘束中は回転が基準へ固定されるため、回転ハンドルは出さない
-  const rotationBound = !!findRotationLock(obj.refs);
+  // 平行/垂直・一致×2・一致+接線で回転が拘束されるため、回転ハンドルは出さない
+  const rotationBound = isRotationConstrained(obj.refs);
   const rotatable = (plugin.capabilities?.rotatable ?? true) && !rotationBound;
   const rotHandleOffset = 20 / zoom;
   const centerX = box.x + box.width / 2;
-  // 円拘束された線の接点(ローカル位置)。接続点ハンドルと端点重なり判定に使う
-  const anchorLocal = obj.refs?.some((r) => r.kind === 'circle')
+  // 接線拘束された線の接点(ローカル位置)。接続点ハンドルと端点重なり判定に使う。
+  // 円周への一致拘束(role:'coincident', kind:'circle')は接線ではないので除外する
+  const anchorLocal = findTangentAnchor(obj.refs)
     ? plugin.getAnchorPoint?.(obj.props) ?? { x: 0, y: 0 }
     : null;
 

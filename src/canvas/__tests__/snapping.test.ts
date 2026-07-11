@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { makeTestPlugin } from '../../core/__tests__/testPlugin';
 import { createSceneObject, type SceneObjects } from '../../core/document';
 import { PluginRegistry } from '../../core/registry';
-import { snapAnchorPoint, snapEndpoint, snapMovement, snapWorldPoint } from '../snapping';
+import {
+  projectAnchorPoint,
+  snapAnchorPoint,
+  snapEndpoint,
+  snapMovement,
+  snapWorldPoint,
+} from '../snapping';
 
 // 100x50 中心原点のテストプラグイン(スナップ点はバウンディング角+中心)
 const plugin = makeTestPlugin();
@@ -136,6 +142,23 @@ describe('snapEndpoint', () => {
     expect(away.point).toEqual({ x: 300, y: 300 });
     expect(away.marker).toBeUndefined();
   });
+
+  it('楕円周へ吸着する(位置のみ、attachは付かない)', () => {
+    const ellipsePlugin = makeTestPlugin({
+      id: 'test.ellipse.endpoint',
+      getSnapPoints: () => [],
+      getEllipse: (p) => ({ center: { x: 0, y: 0 }, radiusX: p.width / 2, radiusY: p.height / 2 }),
+    });
+    const reg = new PluginRegistry();
+    reg.register(ellipsePlugin);
+    const e = createSceneObject(ellipsePlugin, { x: 100, y: 100 }, 1); // rx=50, ry=25
+    // +y周点はワールド(100,125)。近傍(100,128)から吸着する
+    const r = snapEndpoint({ ...base, registry: reg, objects: { [e.id]: e }, point: { x: 100, y: 128 } });
+    expect(r.point.x).toBeCloseTo(100);
+    expect(r.point.y).toBeCloseTo(125);
+    expect(r.marker).toBeDefined();
+    expect(r.attach).toBeUndefined();
+  });
 });
 
 describe('snapAnchorPoint', () => {
@@ -202,5 +225,113 @@ describe('snapAnchorPoint', () => {
     const r = snapAnchorPoint({ ...base, objects, point: { x: 300, y: 300 } });
     expect(r.point).toEqual({ x: 320, y: 320 });
     expect(r.bind).toBeUndefined();
+  });
+
+  it('楕円周上へ吸着し kind:ellipse と媒介変数角度tを返す', () => {
+    const ellipsePlugin = makeTestPlugin({
+      id: 'test.ellipse.anchor',
+      getSnapPoints: () => [{ x: 0, y: 0 }],
+      getEllipse: (p) => ({ center: { x: 0, y: 0 }, radiusX: p.width / 2, radiusY: p.height / 2 }),
+    });
+    const reg = new PluginRegistry();
+    reg.register(ellipsePlugin);
+    const e = createSceneObject(ellipsePlugin, { x: 100, y: 100 }, 1); // rx=50, ry=25
+    // +y周点ワールド(100,125)近傍。中心スナップ点(100,100)からは遠い
+    const r = snapAnchorPoint({ ...base, registry: reg, objects: { [e.id]: e }, point: { x: 100, y: 128 } });
+    expect(r.point.x).toBeCloseTo(100);
+    expect(r.point.y).toBeCloseTo(125);
+    expect(r.bind?.kind).toBe('ellipse');
+    if (r.bind?.kind === 'ellipse') {
+      expect(r.bind.targetId).toBe(e.id);
+      expect(r.bind.t).toBeCloseTo(90);
+    }
+  });
+});
+
+describe('projectAnchorPoint', () => {
+  // スナップ点(中心=index0, 右端=index1)+水平線分を持つプラグイン
+  const anchorPlugin = makeTestPlugin({
+    getSnapPoints: (p) => [
+      { x: 0, y: 0 },
+      { x: p.width / 2, y: 0 },
+    ],
+    getSegments: (p) => [
+      [
+        { x: -p.width / 2, y: 0 },
+        { x: p.width / 2, y: 0 },
+      ],
+    ],
+  });
+  const registry = new PluginRegistry();
+  registry.register(anchorPlugin);
+
+  it('遠く離れた点でも対象の幾何上へクランプする(グリッド・自由座標へは出ない)', () => {
+    const target = createSceneObject(anchorPlugin, { x: 100, y: 100 }, 1);
+    // 線分ワールド(50,100)-(150,100)。遥か右下(500,400)の最近点は右端(150,100)
+    const r = projectAnchorPoint({ point: { x: 500, y: 400 }, target, registry, threshold: 6 });
+    expect(r?.point.x).toBeCloseTo(150);
+    expect(r?.point.y).toBeCloseTo(100);
+    expect(r?.bind.targetId).toBe(target.id);
+  });
+
+  it('線分上をスライドし kind:segment と t を返す', () => {
+    const target = createSceneObject(anchorPlugin, { x: 100, y: 100 }, 1);
+    const r = projectAnchorPoint({ point: { x: 120, y: 130 }, target, registry, threshold: 6 });
+    expect(r?.point.x).toBeCloseTo(120);
+    expect(r?.point.y).toBeCloseTo(100);
+    expect(r?.bind.kind).toBe('segment');
+    if (r?.bind.kind === 'segment') expect(r.bind.t).toBeCloseTo(0.7); // (120-50)/100
+  });
+
+  it('しきい値内なら離散スナップ点(右端)を優先する', () => {
+    const target = createSceneObject(anchorPlugin, { x: 100, y: 100 }, 1);
+    const r = projectAnchorPoint({ point: { x: 148, y: 102 }, target, registry, threshold: 6 });
+    expect(r?.bind).toMatchObject({ kind: 'point', pointIndex: 1 });
+    expect(r?.point.x).toBeCloseTo(150);
+  });
+
+  it('線分・円の無いオブジェクトは最寄りのスナップ点(しきい値なし)へ', () => {
+    const boxPlugin = makeTestPlugin({ id: 'test.box.project' });
+    const reg = new PluginRegistry();
+    reg.register(boxPlugin);
+    const target = createSceneObject(boxPlugin, { x: 0, y: 0 }, 1);
+    // 100x50の箱。遠い(500,500)でも右下角(50,25)へクランプ
+    const r = projectAnchorPoint({ point: { x: 500, y: 500 }, target, registry: reg, threshold: 6 });
+    expect(r?.point.x).toBeCloseTo(50);
+    expect(r?.point.y).toBeCloseTo(25);
+    expect(r?.bind.kind).toBe('point');
+  });
+
+  it('円周上をスライドし kind:circle と局所角度tを返す', () => {
+    const circlePlugin = makeTestPlugin({
+      id: 'test.circle.project',
+      getSnapPoints: () => [{ x: 0, y: 0 }],
+      getCircle: (p) => ({ center: { x: 0, y: 0 }, radius: p.width / 2 }),
+    });
+    const reg = new PluginRegistry();
+    reg.register(circlePlugin);
+    const target = createSceneObject(circlePlugin, { x: 0, y: 0 }, 1); // 半径50
+    const r = projectAnchorPoint({ point: { x: 200, y: 0 }, target, registry: reg, threshold: 6 });
+    expect(r?.point.x).toBeCloseTo(50);
+    expect(r?.point.y).toBeCloseTo(0);
+    expect(r?.bind.kind).toBe('circle');
+    if (r?.bind.kind === 'circle') expect(r.bind.t).toBeCloseTo(0);
+  });
+
+  it('楕円周上をスライドし kind:ellipse と媒介変数角度tを返す', () => {
+    const ellipsePlugin = makeTestPlugin({
+      id: 'test.ellipse.project',
+      getSnapPoints: () => [{ x: 0, y: 0 }],
+      getEllipse: (p) => ({ center: { x: 0, y: 0 }, radiusX: p.width / 2, radiusY: p.height / 2 }),
+    });
+    const reg = new PluginRegistry();
+    reg.register(ellipsePlugin);
+    const target = createSceneObject(ellipsePlugin, { x: 0, y: 0 }, 1); // rx=50, ry=25
+    // 真下(0,200)の周点は t=90 → (0, ry=25)
+    const r = projectAnchorPoint({ point: { x: 0, y: 200 }, target, registry: reg, threshold: 6 });
+    expect(r?.point.x).toBeCloseTo(0);
+    expect(r?.point.y).toBeCloseTo(25);
+    expect(r?.bind.kind).toBe('ellipse');
+    if (r?.bind.kind === 'ellipse') expect(r.bind.t).toBeCloseTo(90);
   });
 });

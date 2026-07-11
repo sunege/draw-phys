@@ -3,6 +3,8 @@ import {
   bracketCyclic,
   bracketLinear,
   circleCircle,
+  circleEllipse,
+  ellipseEllipse,
   ellipseParamAngle,
   pointOnArc,
   pointOnEllipticalArc,
@@ -41,6 +43,39 @@ describe('trimMath 交点', () => {
     expect(pts).toHaveLength(2);
     expect(pts[0].x).toBeCloseTo(40);
     expect(Math.abs(pts[0].y)).toBeCloseTo(30);
+  });
+
+  it('円×楕円: 横断する4交点を返す', () => {
+    // x²+y²=900 と x²/1600+y²/400=1 の交点は (±25.82, ±15.28)
+    const pts = circleEllipse({ x: 0, y: 0 }, 30, { x: 0, y: 0 }, 40, 20, 0);
+    expect(pts).toHaveLength(4);
+    pts.forEach((p) => {
+      expect(Math.abs(p.x)).toBeCloseTo(25.8199, 1);
+      expect(Math.abs(p.y)).toBeCloseTo(15.2753, 1);
+    });
+  });
+
+  it('楕円×楕円: 円と同形の楕円同士は円×円と一致(2交点)', () => {
+    const pts = ellipseEllipse({ x: 0, y: 0 }, 50, 50, 0, { x: 80, y: 0 }, 50, 50, 0);
+    expect(pts).toHaveLength(2);
+    pts.forEach((p) => {
+      expect(p.x).toBeCloseTo(40, 1);
+      expect(Math.abs(p.y)).toBeCloseTo(30, 1);
+    });
+  });
+
+  it('楕円×楕円: 直交する2楕円は対称な4交点', () => {
+    // x²/1600+y²/400=1 と x²/400+y²/1600=1 の交点は |x|=|y|=√320≈17.89
+    const pts = ellipseEllipse({ x: 0, y: 0 }, 40, 20, 0, { x: 0, y: 0 }, 20, 40, 0);
+    expect(pts).toHaveLength(4);
+    pts.forEach((p) => {
+      expect(Math.abs(p.x)).toBeCloseTo(17.8885, 1);
+      expect(Math.abs(p.y)).toBeCloseTo(17.8885, 1);
+    });
+  });
+
+  it('楕円×楕円: 離れていれば交点なし', () => {
+    expect(ellipseEllipse({ x: 0, y: 0 }, 20, 20, 0, { x: 100, y: 0 }, 20, 20, 0)).toHaveLength(0);
   });
 
   it('projectSegmentT: 中点は 0.5', () => {

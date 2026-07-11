@@ -97,6 +97,15 @@ export function pointOnCircleAtAngle(center: Point, radius: number, deg: number)
 }
 
 /**
+ * 中心原点・半径rx/ryの楕円周上で、媒介変数角度deg(度)の点(ローカル座標)。
+ * P(t)=(rx·cos t, ry·sin t)。円のときと同じくローカル座標で返し、回転・移動は transform 側で行う。
+ */
+export function pointOnEllipseAtParam(rx: number, ry: number, deg: number): Point {
+  const rad = deg * DEG_TO_RAD;
+  return { x: rx * Math.cos(rad), y: ry * Math.sin(rad) };
+}
+
+/**
  * 2直線(a1-a2 と b1-b2 を通る無限直線)の交点。平行ならnull。
  * 線分ではなく直線として扱う(角度マークの頂点算出に使う)。
  */

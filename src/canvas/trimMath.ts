@@ -136,6 +136,100 @@ export function segmentEllipse(
   return segmentCircle(toU(a), toU(b), { x: 0, y: 0 }, 1).map(fromU);
 }
 
+/** 楕円(center, rx, ry, rotation)の陰関数値。楕円上で0・内側<0・外側>0 */
+function ellipseImplicit(p: Point, center: Point, rx: number, ry: number, rotation: number): number {
+  const local = rotateVec({ x: p.x - center.x, y: p.y - center.y }, -rotation);
+  const ux = local.x / rx;
+  const uy = local.y / ry;
+  return ux * ux + uy * uy - 1;
+}
+
+/** 円周上の媒介変数角度deg(度)の点(円は回転対称なので回転不要) */
+function circlePoint(center: Point, r: number, deg: number): Point {
+  const rad = (deg * Math.PI) / 180;
+  return { x: center.x + r * Math.cos(rad), y: center.y + r * Math.sin(rad) };
+}
+
+/** 楕円上の媒介変数角度deg(度)の点 */
+function ellipsePoint(center: Point, rx: number, ry: number, rotation: number, deg: number): Point {
+  const rad = (deg * Math.PI) / 180;
+  const local = rotateVec({ x: rx * Math.cos(rad), y: ry * Math.sin(rad) }, rotation);
+  return { x: center.x + local.x, y: center.y + local.y };
+}
+
+/**
+ * 曲線1(param: 角度deg∈[0,360)→点で1周パラメタ表示)と曲線2(implicit: 曲線2上で0・内側<0)の
+ * 交点を数値的に求める。全周を細かくサンプルし、陰関数の符号が変わる区間を二分法で詰める。
+ * 内外が入れ替わる「横断的な交点」だけを返す=トリムの区間境界にちょうど必要な点。
+ * 接点(符号が変わらず触れるだけ)は区間を分けないので返さない(円×円の circleCircle と同趣旨)。
+ * 円錐曲線(円・楕円)同士は最大4交点。楕円×楕円の4次方程式を陽に解かずに済ませる。
+ */
+function conicIntersections(param: (deg: number) => Point, implicit: (p: Point) => number): Point[] {
+  const STEPS = 720; // 0.5°刻み。これより近接した2交点は1点に融合する(ほぼ接する場合のみ)
+  const pts: Point[] = [];
+  let prevDeg = 0;
+  let prev = implicit(param(0));
+  for (let i = 1; i <= STEPS; i++) {
+    const deg = (i * 360) / STEPS;
+    const cur = implicit(param(deg));
+    if (prev * cur < 0) {
+      // [prevDeg, deg] に根。二分法で詰める
+      let lo = prevDeg;
+      let hi = deg;
+      let flo = prev;
+      for (let k = 0; k < 50 && hi - lo > 1e-7; k++) {
+        const mid = (lo + hi) / 2;
+        const fm = implicit(param(mid));
+        if (fm === 0) {
+          lo = hi = mid;
+          break;
+        }
+        if (flo * fm < 0) hi = mid;
+        else {
+          lo = mid;
+          flo = fm;
+        }
+      }
+      pts.push(param((lo + hi) / 2));
+    }
+    prevDeg = deg;
+    prev = cur;
+  }
+  return pts;
+}
+
+/** 円(cc, cr) × 楕円(ec, erx, ery, erot) の交点(ワールド, 0〜4点)。円周をサンプルして数値的に求める */
+export function circleEllipse(
+  cc: Point,
+  cr: number,
+  ec: Point,
+  erx: number,
+  ery: number,
+  erot: number,
+): Point[] {
+  return conicIntersections(
+    (deg) => circlePoint(cc, cr, deg),
+    (p) => ellipseImplicit(p, ec, erx, ery, erot),
+  );
+}
+
+/** 2楕円の交点(ワールド, 0〜4点)。片方の楕円周をサンプルして数値的に求める */
+export function ellipseEllipse(
+  c1: Point,
+  rx1: number,
+  ry1: number,
+  rot1: number,
+  c2: Point,
+  rx2: number,
+  ry2: number,
+  rot2: number,
+): Point[] {
+  return conicIntersections(
+    (deg) => ellipsePoint(c1, rx1, ry1, rot1, deg),
+    (p) => ellipseImplicit(p, c2, rx2, ry2, rot2),
+  );
+}
+
 /** 昇順の境界(定義域端を含む)から、click を挟む隣接ペア[lo,hi]を返す。無ければnull */
 export function bracketLinear(bounds: number[], click: number): [number, number] | null {
   const s = [...bounds].sort((x, y) => x - y);

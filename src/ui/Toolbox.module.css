@@ -1,9 +1,19 @@
 .toolbox {
-  width: 180px;
+  flex-shrink: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 8px;
   background: #ffffff;
-  border-right: 1px solid #dde1e7;
+}
+
+.toolbox[data-rail='true'] {
+  padding: 8px 4px;
+}
+
+.railDivider {
+  height: 1px;
+  margin: 6px 4px;
+  background: #eef0f3;
 }
 
 .search {
@@ -97,6 +107,12 @@
   border-radius: 6px;
   cursor: pointer;
   text-align: left;
+}
+
+.toolbox[data-rail='true'] .tool,
+.toolbox[data-rail='true'] .toolActive {
+  justify-content: center;
+  padding: 8px 4px;
 }
 
 .tool:hover {

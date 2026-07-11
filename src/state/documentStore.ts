@@ -1,11 +1,27 @@
 import { applyPatches, enablePatches, produceWithPatches, type Patch } from 'immer';
 import { create } from 'zustand';
-import { solveConstraints, solveConstraintsInPlace } from '../core/constraints';
+import {
+  solveConstraints,
+  solveConstraintsInPlace,
+  type ConstraintIssue,
+} from '../core/constraints';
 import { sortedObjects, type SceneObject, type SceneObjects } from '../core/document';
 import { unionRects, worldBounds } from '../core/geometry';
 import type { TrimPiece } from '../core/plugin';
 import { pluginRegistry } from '../core/registry';
 import type { ObjectRef, Rect, Transform } from '../core/types';
+import { useConstraintStore } from './constraintStore';
+
+/**
+ * 拘束を解決し、解けなかった拘束(過剰拘束)を constraintStore へ反映する。
+ * documentStore の solve 呼び出しはすべてここを通す(マーカーの赤表示が常に最新になる)。
+ */
+function solveAndPublish(objects: SceneObjects): SceneObjects {
+  const issues: ConstraintIssue[] = [];
+  const next = solveConstraints(objects, pluginRegistry, issues);
+  useConstraintStore.getState().setIssues(issues);
+  return next;
+}
 
 enablePatches();
 
@@ -135,10 +151,12 @@ function maxZIndex(objects: SceneObjects): number {
 export const useDocumentStore = create<DocumentState>((set, get) => {
   /** objectsをimmer経由で変更し、拘束を解決してからパッチを履歴へ積む */
   const mutate = (recipe: (draft: SceneObjects) => void) => {
+    const issues: ConstraintIssue[] = [];
     const [next, redo, undo] = produceWithPatches(get().objects, (draft) => {
       recipe(draft);
-      solveConstraintsInPlace(draft, pluginRegistry);
+      solveConstraintsInPlace(draft, pluginRegistry, issues);
     });
+    useConstraintStore.getState().setIssues(issues);
     if (redo.length === 0) return;
     set({
       objects: next,
@@ -266,7 +284,26 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       mutate((draft) => {
         const obj = draft[id];
         if (!obj) return;
+        const plugin = pluginRegistry.get(obj.pluginId);
+        const oldLen = obj.props.length;
         Object.assign(obj.props, patch);
+        // 線分系(getEndpoints)の長さ変更は、一致点を固定して反対端で伸縮させる。
+        // 一致アンカーの局所位置を長さ比で更新すると、ソルバが同じ点を基準点へ再ピンし、
+        // 結果として一致していない側の端点だけが動く。
+        if (
+          plugin?.getEndpoints &&
+          typeof patch.length === 'number' &&
+          typeof oldLen === 'number' &&
+          oldLen > 1e-9 &&
+          obj.refs
+        ) {
+          const f = patch.length / oldLen;
+          obj.refs = obj.refs.map((r) =>
+            r.role === 'coincident' && r.localAnchor
+              ? { ...r, localAnchor: { x: r.localAnchor.x * f, y: r.localAnchor.y * f } }
+              : r,
+          );
+        }
       });
     },
 
@@ -293,7 +330,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       const obj = objects[id];
       if (!obj) return;
       objects[id] = { ...obj, refs };
-      set({ objects: solveConstraints(objects, pluginRegistry) });
+      set({ objects: solveAndPublish(objects) });
     },
 
     setTransformsTransient(transforms) {
@@ -303,7 +340,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         if (!obj) continue;
         objects[id] = { ...obj, transform };
       }
-      set({ objects: solveConstraints(objects, pluginRegistry) });
+      set({ objects: solveAndPublish(objects) });
     },
 
     commitTransforms(before) {
@@ -343,7 +380,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         ...(patch.props ? { props: patch.props } : {}),
         ...(patch.refs ? { refs: patch.refs } : {}),
       };
-      set({ objects: solveConstraints(objects, pluginRegistry) });
+      set({ objects: solveAndPublish(objects) });
     },
 
     commitObject(id, before) {
@@ -390,7 +427,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
           ...(patch.props ? { props: patch.props } : {}),
         };
       }
-      set({ objects: solveConstraints(objects, pluginRegistry) });
+      set({ objects: solveAndPublish(objects) });
     },
 
     commitObjects(before) {
@@ -593,7 +630,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       const entry = undoStack[undoStack.length - 1];
       if (!entry) return;
       // 依存オブジェクトは対象から純粋に導出されるため、パッチ適用後に再解決する
-      const next = solveConstraints(applyPatches(objects, entry.undo), pluginRegistry);
+      const next = solveAndPublish(applyPatches(objects, entry.undo));
       set({
         objects: next,
         undoStack: undoStack.slice(0, -1),
@@ -607,7 +644,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
       const { undoStack, redoStack, objects, selection } = get();
       const entry = redoStack[redoStack.length - 1];
       if (!entry) return;
-      const next = solveConstraints(applyPatches(objects, entry.redo), pluginRegistry);
+      const next = solveAndPublish(applyPatches(objects, entry.redo));
       set({
         objects: next,
         undoStack: [...undoStack, entry],
@@ -629,7 +666,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         else delete obj.refs;
       }
       set({
-        objects: solveConstraints(objects, pluginRegistry),
+        objects: solveAndPublish(objects),
         selection: [],
         undoStack: [],
         redoStack: [],

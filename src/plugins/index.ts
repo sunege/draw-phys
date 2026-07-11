@@ -36,11 +36,29 @@ import {
 import { resistorPlugin } from './electromagnetism/resistor';
 import { switchPlugin } from './electromagnetism/switchSym';
 import { variableResistorPlugin } from './electromagnetism/variableResistor';
+import { energyLevelsPlugin } from './atom/energyLevels';
 import { blockPlugin } from './mechanics/block';
+import { cartPlugin } from './mechanics/cart';
 import { floorPlugin } from './mechanics/floor';
 import { forceVectorPlugin } from './mechanics/forceVector';
+import { inclinePlugin } from './mechanics/incline';
+import { pulleyPlugin } from './mechanics/pulley';
 import { springPlugin } from './mechanics/spring';
+import { stringPlugin } from './mechanics/string';
 import { vectorPlugin } from './mechanics/vector';
+import { concaveMirrorPlugin, convexMirrorPlugin } from './optics/curvedMirror';
+import { concaveLensPlugin, convexLensPlugin } from './optics/lens';
+import { lightSourcePlugin } from './optics/lightSource';
+import { mirrorPlugin } from './optics/mirror';
+import { prismPlugin } from './optics/prism';
+import { rayPlugin } from './optics/ray';
+import { cylinderPlugin } from './thermo/cylinder';
+import { flamePlugin } from './thermo/flame';
+import { gasMoleculesPlugin } from './thermo/gasMolecules';
+import { thermometerPlugin } from './thermo/thermometer';
+import { sineWavePlugin } from './waves/sineWave';
+import { tuningForkPlugin } from './waves/tuningFork';
+import { wavefrontPlugin } from './waves/wavefront';
 
 /**
  * 標準プラグインの登録。
@@ -64,6 +82,10 @@ export function registerStandardPlugins(): void {
   pluginRegistry.register(vectorPlugin);
   pluginRegistry.register(forceVectorPlugin);
   pluginRegistry.register(floorPlugin);
+  pluginRegistry.register(inclinePlugin);
+  pluginRegistry.register(pulleyPlugin);
+  pluginRegistry.register(cartPlugin);
+  pluginRegistry.register(stringPlugin);
   pluginRegistry.register(angleMarkPlugin);
   pluginRegistry.register(lengthMarkPlugin);
   pluginRegistry.register(graphPlugin);
@@ -89,4 +111,24 @@ export function registerStandardPlugins(): void {
   pluginRegistry.register(currentDirectionPlugin);
   pluginRegistry.register(pointChargePlugin);
   pluginRegistry.register(barMagnetPlugin);
+  // 熱力学
+  pluginRegistry.register(cylinderPlugin);
+  pluginRegistry.register(gasMoleculesPlugin);
+  pluginRegistry.register(flamePlugin);
+  pluginRegistry.register(thermometerPlugin);
+  // 波動
+  pluginRegistry.register(sineWavePlugin);
+  pluginRegistry.register(wavefrontPlugin);
+  pluginRegistry.register(tuningForkPlugin);
+  // 光学
+  pluginRegistry.register(convexLensPlugin);
+  pluginRegistry.register(concaveLensPlugin);
+  pluginRegistry.register(mirrorPlugin);
+  pluginRegistry.register(concaveMirrorPlugin);
+  pluginRegistry.register(convexMirrorPlugin);
+  pluginRegistry.register(rayPlugin);
+  pluginRegistry.register(lightSourcePlugin);
+  pluginRegistry.register(prismPlugin);
+  // 原子
+  pluginRegistry.register(energyLevelsPlugin);
 }

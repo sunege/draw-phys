@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { fromDisplayAngle, toDisplayAngle } from '../canvas/transformMath';
-import { findRotationLock } from '../core/constraints';
+import { isLengthConstrained, isRotationConstrained } from '../core/constraints';
 import type { SceneObject } from '../core/document';
 import type { PropertyField } from '../core/plugin';
 import { pluginRegistry } from '../core/registry';
@@ -10,8 +10,26 @@ import {
   type DistributeMode,
   type ReorderMode,
 } from '../state/documentStore';
+import { RIGHT_CFG, RIGHT_NARROW_BELOW, useLayoutStore } from '../state/layoutStore';
 import { computeCommonFields } from './commonPropertyFields';
 import styles from './PropertyPanel.module.css';
+
+/** パネル幅・折りたたみ・2行化(狭幅reflow)をまとめて適用する共通の外枠 */
+function PanelFrame({ children }: { children?: ReactNode }) {
+  const rightWidth = useLayoutStore((s) => s.rightWidth);
+  const rightCollapsed = useLayoutStore((s) => s.rightCollapsed);
+  const narrow = !rightCollapsed && rightWidth < RIGHT_NARROW_BELOW;
+  return (
+    <aside
+      className={styles.panel}
+      data-collapsed={rightCollapsed}
+      data-narrow={narrow}
+      style={{ width: rightCollapsed ? RIGHT_CFG.collapsedSize : rightWidth }}
+    >
+      {!rightCollapsed && children}
+    </aside>
+  );
+}
 
 const ALIGN_ACTIONS: { mode: AlignMode; label: string; title: string }[] = [
   { mode: 'left', label: '⇤', title: '左揃え' },
@@ -199,12 +217,18 @@ function FieldInput({
   field,
   value,
   mixed = false,
+  disabled = false,
+  disabledTitle,
   onChange,
 }: {
   field: PropertyField;
   value: unknown;
   /** 複数選択の一括編集で、選択オブジェクト間で値が食い違う場合 true */
   mixed?: boolean;
+  /** 拘束で値が確定していて編集できない場合 true(長さの2点拘束など) */
+  disabled?: boolean;
+  /** disabled のときにホバーで表示する理由 */
+  disabledTitle?: string;
   onChange: (value: unknown) => void;
 }) {
   switch (field.type) {
@@ -217,6 +241,8 @@ function FieldInput({
           min={field.min}
           max={field.max}
           step={field.step}
+          disabled={disabled}
+          title={disabled ? disabledTitle : undefined}
           onChange={(e) => {
             const n = Number(e.target.value);
             if (!Number.isNaN(n)) onChange(n);
@@ -346,30 +372,32 @@ export function PropertyPanel() {
 
   if (selection.length === 0) {
     return (
-      <aside className={styles.panel}>
+      <PanelFrame>
         <p className={styles.empty}>オブジェクトを選択するとプロパティが表示されます</p>
         <ManagedObjects />
-      </aside>
+      </PanelFrame>
     );
   }
 
   if (selection.length > 1) {
     return (
-      <aside className={styles.panel}>
+      <PanelFrame>
         <p className={styles.empty}>{selection.length}個のオブジェクトを選択中</p>
         <MultiPropertyFields />
         <SelectionActions />
         <ManagedObjects />
-      </aside>
+      </PanelFrame>
     );
   }
 
   const obj = objects[selection[0]];
   const plugin = obj ? pluginRegistry.get(obj.pluginId) : undefined;
-  if (!obj || !plugin) return <aside className={styles.panel} />;
+  if (!obj || !plugin) return <PanelFrame />;
 
-  // 回転角の編集(平行/垂直拘束中は回転が固定されるため出さない)
-  const rotationBound = !!findRotationLock(obj.refs);
+  // 回転角の編集(平行/垂直・一致×2・一致+接線で回転が固定されるため出さない)
+  const rotationBound = isRotationConstrained(obj.refs);
+  // 線分系の長さは一致×2(2点拘束)で確定するため、そのときはパネル編集を禁止する
+  const lengthBound = !!plugin.getEndpoints && isLengthConstrained(obj.refs);
   const rotatable = (plugin.capabilities?.rotatable ?? true) && !rotationBound;
   // 表示は「水平右=0°, 反時計回りが正」。中心まわりに向きだけ変える
   const displayAngle = Math.round(toDisplayAngle(obj.transform.rotation) * 10) / 10;
@@ -382,7 +410,7 @@ export function PropertyPanel() {
   };
 
   return (
-    <aside className={styles.panel}>
+    <PanelFrame>
       <h3 className={styles.heading}>{plugin.name}</h3>
       {rotatable && (
         <label className={styles.field}>
@@ -404,6 +432,8 @@ export function PropertyPanel() {
           <FieldInput
             field={field}
             value={obj.props[field.key]}
+            disabled={field.key === 'length' && lengthBound}
+            disabledTitle="2点で拘束されているため長さは固定です"
             onChange={(value) => updateProps(obj.id, { [field.key]: value })}
           />
         </label>
@@ -423,6 +453,6 @@ export function PropertyPanel() {
       )}
       <SelectionActions />
       <ManagedObjects />
-    </aside>
+    </PanelFrame>
   );
 }

@@ -42,18 +42,29 @@ export interface ObjectRef {
    * 本体ソルバが直接処理する予約ロール(プラグイン種別を問わない):
    * - 'parallel'      自オブジェクトの回転を基準線分と平行に保つ(angleOffset 0/180)
    * - 'perpendicular' 自オブジェクトの回転を基準線分と垂直に保つ(angleOffset ±90)
-   * - 'coincident'    自オブジェクトの局所アンカーを基準点に一致させ追従させる(一致/接続)
+   * - 'coincident'    自オブジェクトの局所アンカーを基準点に一致させ追従させる(一致/接続)。
+   *                   複数持てる: 2本目は残った自由度(回転、線分系なら長さも)で解く=2点拘束。
+   * - 'anchor'(kind:'circle') coincidentと同居する場合は本体ソルバが「一致点を通る円への接線」
+   *                   として回転を解く(接点は浮動、tを書き直す)。単独ならプラグインのapplyRefs担当。
    * - 'symmetric'     自オブジェクト全体を基準オブジェクト(kind:'object')の鏡像に保つ。
    *                   対称軸は同オブジェクトの 'symmetricAxis'(kind:'segment')で指定する。
    *                   基準と同じ種類(pluginId)のときのみ張れる。
    * - 'symmetricAxis' 'symmetric' の対称軸(線分)。単独では意味を持たない。
+   *
+   * refs配列順=優先度。先着の拘束を厳密に満たし、後着が解けなければ過剰拘束(ConstraintIssue)。
    */
   role: string;
   /** 参照先オブジェクトID */
   targetId: string;
-  /** segment: 線分 / circle: 円周 / point: 対象のスナップ点 / object: 対象オブジェクト全体 */
-  kind: 'segment' | 'circle' | 'point' | 'object';
-  /** segment: 線分パラメタ[0,1] / circle: 角度(度, 対象ローカル基準) */
+  /**
+   * segment: 線分 / circle: 円周 / ellipse: 楕円周 / point: 対象のスナップ点 /
+   * object: 対象オブジェクト全体
+   */
+  kind: 'segment' | 'circle' | 'ellipse' | 'point' | 'object';
+  /**
+   * segment: 線分パラメタ[0,1] / circle: 角度(度, 対象ローカル基準) /
+   * ellipse: 媒介変数角度(度, 対象ローカル基準。P(t)=(rx·cos t, ry·sin t))
+   */
   t?: number;
   /** 複数線分を持つ対象での辺インデックス */
   segIndex?: number;
@@ -77,4 +88,11 @@ export interface ObjectRef {
    * オブジェクトから離した場合に焼き込まれ、保存・Undo/Redoにそのまま乗る。
    */
   worldAnchor?: Point;
+  /**
+   * 中点拘束(role:'coincident' の強化版)を示すフラグ。基準は必ずエッジの中点
+   * (kind:'segment', t:0.5)で、ソルバの解き方・端点編集・長さ/回転の判定は通常の一致拘束と
+   * まったく同じ。違いは一致点マーカーをドラッグしても基準点をスライド移動できないことだけ
+   * (CanvasStage のマーカー操作・ConstraintMarkers の表示で参照する)。
+   */
+  midpoint?: boolean;
 }

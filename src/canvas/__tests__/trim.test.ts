@@ -7,6 +7,7 @@ import { arcPlugin } from '../../plugins/basic/arc';
 import { circlePlugin } from '../../plugins/basic/circle';
 import { ellipsePlugin } from '../../plugins/basic/ellipse';
 import { linePlugin } from '../../plugins/basic/line';
+import { rectPlugin } from '../../plugins/basic/rect';
 import { computeTrimKeeps } from '../trim';
 
 const registry = new PluginRegistry();
@@ -14,6 +15,7 @@ registry.register(linePlugin as AnyPlugin);
 registry.register(circlePlugin as AnyPlugin);
 registry.register(arcPlugin as AnyPlugin);
 registry.register(ellipsePlugin as AnyPlugin);
+registry.register(rectPlugin as AnyPlugin);
 
 function tf(x: number, y: number, rotation = 0): Transform {
   return { x, y, rotation, scaleX: 1, scaleY: 1 };
@@ -55,6 +57,19 @@ function ellipseObj(id: string, radiusX: number, radiusY: number, transform: Tra
     locked: false,
     visible: true,
     props: { ...ellipsePlugin.defaultProps, radiusX, radiusY },
+  };
+}
+
+function rectObj(id: string, width: number, height: number, transform: Transform): SceneObject {
+  return {
+    id,
+    pluginId: 'core.rect',
+    version: 1,
+    transform,
+    zIndex: 1,
+    locked: false,
+    visible: true,
+    props: { ...rectPlugin.defaultProps, width, height },
   };
 }
 
@@ -201,5 +216,92 @@ describe('computeTrimKeeps + ellipse.trim', () => {
       t: 0,
     });
     expect(keeps).toBeNull();
+  });
+});
+
+describe('computeTrimKeeps: 曲線カッター(円⇔楕円の相互トリム)', () => {
+  it('円を楕円(切断相手)で切る: 交点間を切り残りの円弧へ', () => {
+    // 半径50の円Oを、(80,0)にある円形楕円(rx=ry=50)で切る → 交点(40,±30)=角度±36.87°
+    const objects: SceneObjects = {
+      O: circleObj('O', 50, tf(0, 0)),
+      E: ellipseObj('E', 50, 50, tf(80, 0)),
+    };
+    const keeps = computeTrimKeeps(objects, registry, 'O', { x: 50, y: 0 }, {
+      kind: 'circle',
+      targetId: 'O',
+      t: 0,
+    });
+    expect(keeps).toHaveLength(1);
+    const arc = keeps![0] as { kind: string; fromDeg: number; toDeg: number };
+    expect(arc.kind).toBe('arc');
+    expect(arc.fromDeg).toBeCloseTo(36.87, 0);
+    expect(arc.toDeg).toBeCloseTo(323.13, 0);
+  });
+
+  it('楕円を円(切断相手)で切る: 交点間を切り残りの楕円弧へ', () => {
+    // rx=40,ry=20の楕円Oを、(60,0)半径40の円で切る → 交点は媒介変数角度 ±54.15°(cosθ=2-√2)
+    const objects: SceneObjects = {
+      O: ellipseObj('O', 40, 20, tf(0, 0)),
+      C: circleObj('C', 40, tf(60, 0)),
+    };
+    const keeps = computeTrimKeeps(objects, registry, 'O', { x: 40, y: 0 }, {
+      kind: 'ellipse',
+      targetId: 'O',
+      t: 0,
+    });
+    expect(keeps).toHaveLength(1);
+    const arc = keeps![0] as { kind: string; fromDeg: number; toDeg: number };
+    expect(arc.kind).toBe('arc');
+    expect(arc.fromDeg).toBeCloseTo(54.15, 0);
+    expect(arc.toDeg).toBeCloseTo(305.85, 0);
+
+    const pieces = (ellipsePlugin as AnyPlugin).trim!(objects.O.props, objects.O.transform, keeps!);
+    expect(pieces![0].pluginId).toBe('core.ellipseArc');
+  });
+
+  it('楕円を楕円(切断相手)で切る: 直交する2楕円の交点間を切る', () => {
+    // rx=40,ry=20 と rx=20,ry=40 の直交楕円 → 交点は媒介変数角度 ±63.43°(|x|=|y|)
+    const objects: SceneObjects = {
+      O: ellipseObj('O', 40, 20, tf(0, 0)),
+      E: ellipseObj('E', 20, 40, tf(0, 0)),
+    };
+    const keeps = computeTrimKeeps(objects, registry, 'O', { x: 40, y: 0 }, {
+      kind: 'ellipse',
+      targetId: 'O',
+      t: 0,
+    });
+    expect(keeps).toHaveLength(1);
+    const arc = keeps![0] as { kind: string; fromDeg: number; toDeg: number };
+    expect(arc.fromDeg).toBeCloseTo(63.43, 0);
+    expect(arc.toDeg).toBeCloseTo(296.57, 0);
+  });
+});
+
+describe('computeTrimKeeps + rect.trim', () => {
+  it('四角形はクリックした辺を交点で切り、全辺を線分に分解する', () => {
+    // 幅100高さ60の四角形。上辺(y=-30)を x=±20 で2回横切る円で切り、辺中央をクリック
+    const objects: SceneObjects = {
+      R: rectObj('R', 100, 60, tf(0, 0)),
+      C: circleObj('C', 20, tf(0, -30)),
+    };
+    const pick = { kind: 'segment', targetId: 'R', segIndex: 0 } as const;
+    const keeps = computeTrimKeeps(objects, registry, 'R', { x: 0, y: -30 }, pick);
+    expect(keeps).toEqual([
+      { kind: 'segment', from: 0, to: 0.3 },
+      { kind: 'segment', from: 0.7, to: 1 },
+    ]);
+
+    const pieces = (rectPlugin as AnyPlugin).trim!(objects.R.props, objects.R.transform, keeps!, pick);
+    // クリック辺=2本 + 残り3辺=3本 = 5本の線分に分解
+    expect(pieces).toHaveLength(5);
+    pieces!.forEach((pc) => expect(pc.pluginId).toBe('core.line'));
+    const lengths = pieces!.map((pc) => (pc.props as { length: number }).length).sort((a, b) => a - b);
+    expect(lengths).toEqual([
+      expect.closeTo(30),
+      expect.closeTo(30),
+      expect.closeTo(60),
+      expect.closeTo(60),
+      expect.closeTo(100),
+    ]);
   });
 });

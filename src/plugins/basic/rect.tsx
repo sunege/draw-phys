@@ -1,4 +1,6 @@
-import type { PhysicsObjectPlugin } from '../../core/plugin';
+import { localToWorld } from '../../core/geometry';
+import type { PhysicsObjectPlugin, TrimPiece } from '../../core/plugin';
+import type { Point } from '../../core/types';
 import { CenterMark } from './CenterMark';
 import { PatternDefs } from './PatternDefs';
 import { centerDefaults, centerFields } from './centerFields';
@@ -11,7 +13,7 @@ import {
   type FillPattern,
   type PatternSize,
 } from './fillPattern';
-import { dashArray, lineStyleField, type LineStyle } from './lineUtils';
+import { dashArray, lineStyleField, segmentFromEndpoints, type LineStyle } from './lineUtils';
 
 interface RectProps {
   width: number;
@@ -26,6 +28,18 @@ interface RectProps {
   showCenter: boolean;
   centerStyle: 'cross' | 'dot';
   centerSize: number;
+}
+
+/** 4辺のローカル端点([始点, 終点] × 4)。上→右→下→左の順(getSegments と trim で共有) */
+function rectEdges(props: RectProps): [Point, Point][] {
+  const hw = props.width / 2;
+  const hh = props.height / 2;
+  return [
+    [{ x: -hw, y: -hh }, { x: hw, y: -hh }],
+    [{ x: hw, y: -hh }, { x: hw, y: hh }],
+    [{ x: hw, y: hh }, { x: -hw, y: hh }],
+    [{ x: -hw, y: hh }, { x: -hw, y: -hh }],
+  ];
 }
 
 export const rectPlugin: PhysicsObjectPlugin<RectProps> = {
@@ -103,21 +117,46 @@ export const rectPlugin: PhysicsObjectPlugin<RectProps> = {
       { x: -hw, y: 0 },
     ];
   },
-  getSegments: (props) => {
-    const hw = props.width / 2;
-    const hh = props.height / 2;
-    return [
-      [{ x: -hw, y: -hh }, { x: hw, y: -hh }],
-      [{ x: hw, y: -hh }, { x: hw, y: hh }],
-      [{ x: hw, y: hh }, { x: -hw, y: hh }],
-      [{ x: -hw, y: hh }, { x: -hw, y: -hh }],
-    ];
-  },
+  getSegments: (props) => rectEdges(props),
   applyScale: (props, fx, fy) => ({
     ...props,
     width: props.width * fx,
     height: props.height * fy,
   }),
+  // トリム: 四角形は閉じた1図形なので、切ると四角形では表せない。
+  // クリックした辺を交点で切った線分に、残り3辺はまるごと線分に分解する(core.line群へ)。
+  trim(props, transform, keeps, pick): TrimPiece[] {
+    if (!pick || pick.kind !== 'segment') return [];
+    const base = {
+      stroke: props.stroke,
+      strokeWidth: props.strokeWidth,
+      lineStyle: props.lineStyle,
+      lengthLocked: false,
+    };
+    const makeLine = (la: Point, lb: Point): TrimPiece | null => {
+      const seg = segmentFromEndpoints(localToWorld(la, transform), localToWorld(lb, transform));
+      if (seg.length < 1) return null; // 1px未満は捨てる
+      return { pluginId: 'core.line', props: { ...base, length: seg.length }, transform: seg.transform };
+    };
+    const pieces: TrimPiece[] = [];
+    rectEdges(props).forEach(([la, lb], i) => {
+      if (i === pick.segIndex) {
+        // クリックした辺: 残す区間[from,to]だけを線分化(端の短縮=1本, 中間削除=2本)
+        for (const keep of keeps) {
+          if (keep.kind !== 'segment') continue;
+          const p0 = { x: la.x + (lb.x - la.x) * keep.from, y: la.y + (lb.y - la.y) * keep.from };
+          const p1 = { x: la.x + (lb.x - la.x) * keep.to, y: la.y + (lb.y - la.y) * keep.to };
+          const line = makeLine(p0, p1);
+          if (line) pieces.push(line);
+        }
+      } else {
+        // 他の辺: まるごと線分化
+        const line = makeLine(la, lb);
+        if (line) pieces.push(line);
+      }
+    });
+    return pieces;
+  },
   capabilities: { rotatable: true, scalable: 'both' },
   placement: 'click',
 };

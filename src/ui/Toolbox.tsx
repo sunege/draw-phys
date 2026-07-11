@@ -2,6 +2,7 @@ import { useMemo, useState, type ComponentType } from 'react';
 import { OPERATION_TOOLS } from '../canvas/tools';
 import { TOOL_SHORTCUTS } from '../canvas/toolShortcuts';
 import { pluginRegistry } from '../core/registry';
+import { LEFT_CFG, useLayoutStore } from '../state/layoutStore';
 import { useToolStore } from '../state/toolStore';
 import styles from './Toolbox.module.css';
 
@@ -20,7 +21,11 @@ const CATEGORY_ORDER = [
   'グラフ',
   'レイアウト',
   '力学',
+  '熱力学',
+  '波動',
+  '光学',
   '電磁気',
+  '原子',
 ];
 
 /** プラグイン図形と操作ツールをカテゴリ別に統合し、CATEGORY_ORDER 順で返す */
@@ -61,6 +66,8 @@ export function Toolbox() {
   const [query, setQuery] = useState('');
   // 折りたたみ中のカテゴリ名。既定は全展開
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const leftWidth = useLayoutStore((s) => s.leftWidth);
+  const rail = useLayoutStore((s) => s.leftCollapsed);
 
   const q = query.trim().toLowerCase();
   const searching = q.length > 0;
@@ -83,47 +90,58 @@ export function Toolbox() {
     });
 
   return (
-    <aside className={styles.toolbox}>
+    <aside
+      className={styles.toolbox}
+      data-rail={rail}
+      style={{ width: rail ? LEFT_CFG.collapsedSize : leftWidth }}
+    >
       <div className={styles.section}>
         <button
           type="button"
           className={activeTool === 'select' ? styles.toolActive : styles.tool}
           onClick={() => setActiveTool('select')}
+          title={rail ? '選択' : undefined}
         >
           <SelectIcon />
-          <span>選択</span>
+          {!rail && <span>選択</span>}
         </button>
       </div>
 
-      <div className={styles.search}>
-        <input
-          type="search"
-          className={styles.searchInput}
-          placeholder="ツールを検索"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </div>
+      {!rail && (
+        <div className={styles.search}>
+          <input
+            type="search"
+            className={styles.searchInput}
+            placeholder="ツールを検索"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+      )}
 
-      {visible.length === 0 && <p className={styles.empty}>該当するツールがありません</p>}
+      {!rail && visible.length === 0 && <p className={styles.empty}>該当するツールがありません</p>}
 
       {visible.map(([category, items]) => {
-        // 検索中は結果が隠れないよう常に展開
-        const open = searching || !collapsed.has(category);
+        // 検索中は結果が隠れないよう常に展開。アイコンのみ表示中は見出しを簡略化して常に展開する
+        const open = rail || searching || !collapsed.has(category);
         return (
           <div key={category} className={styles.section}>
-            <button
-              type="button"
-              className={styles.heading}
-              onClick={() => !searching && toggle(category)}
-              aria-expanded={open}
-            >
-              <span className={styles.chevron} data-open={open}>
-                ▾
-              </span>
-              <span className={styles.headingText}>{category}</span>
-              <span className={styles.count}>{items.length}</span>
-            </button>
+            {rail ? (
+              <div className={styles.railDivider} />
+            ) : (
+              <button
+                type="button"
+                className={styles.heading}
+                onClick={() => !searching && toggle(category)}
+                aria-expanded={open}
+              >
+                <span className={styles.chevron} data-open={open}>
+                  ▾
+                </span>
+                <span className={styles.headingText}>{category}</span>
+                <span className={styles.count}>{items.length}</span>
+              </button>
+            )}
             {open &&
               items.map((item) => {
                 const shortcut = TOOL_SHORTCUTS[item.id];
@@ -134,12 +152,15 @@ export function Toolbox() {
                     className={activeTool === item.id ? styles.toolActive : styles.tool}
                     // 事前選択を1つ目のピックに使うか解除するかは、ツール切替時に CanvasStage が判断する
                     onClick={() => setActiveTool(item.id)}
+                    title={rail ? item.name + (shortcut ? `(${shortcut})` : '') : undefined}
                   >
                     <item.Icon />
-                    <span>
-                      {item.name}
-                      {shortcut && <span className={styles.shortcutHint}>({shortcut})</span>}
-                    </span>
+                    {!rail && (
+                      <span>
+                        {item.name}
+                        {shortcut && <span className={styles.shortcutHint}>({shortcut})</span>}
+                      </span>
+                    )}
                   </button>
                 );
               })}

@@ -19,7 +19,7 @@ npm test       # vitest run
 
 ### プラグイン経由でのみ図形を扱う
 
-中核契約は `src/core/plugin.ts` の `PhysicsObjectPlugin<P>`。本体（キャンバス・選択・Undo/Redo・保存・出力）は図形種別を知らず `pluginRegistry`(`src/core/registry.ts`)経由でのみアクセス。**新図形＝1ファイル新規＋`src/plugins/index.ts`に登録1行**（`要件.md`§16, 不変目標）。プラグインは `src/plugins/{basic,mechanics,annotation,graph,layout}/` に分け、`category`がツールボックス見出し。主なフック（多くは任意）:
+中核契約は `src/core/plugin.ts` の `PhysicsObjectPlugin<P>`。本体（キャンバス・選択・Undo/Redo・保存・出力）は図形種別を知らず `pluginRegistry`(`src/core/registry.ts`)経由でのみアクセス。**新図形＝1ファイル新規＋`src/plugins/index.ts`に登録1行**（`要件.md`§16, 不変目標）。プラグインは `src/plugins/{basic,mechanics,thermo,electromagnetism,optics,waves,atom,annotation,graph,layout}/` に分け、`category`がツールボックス見出し。主なフック（多くは任意）:
 - `Renderer({props,transform?,objectId?,interactive?})` — **ローカル座標**でSVG描画。`interactive`は書き出し時false（キャンバス専用の補助線・当たり判定を出し分ける）
 - `getBounds`/`getSnapPoints`/`getSegments`/`getCircle` — 当たり判定・スナップ・拘束相手
 - `propertySchema` — `PropertyPanel.tsx`自動生成。表せない配列・ボタン等は`PanelExtra`(独自パネル部品)
@@ -46,9 +46,9 @@ npm test       # vitest run
 
 `SceneObject.refs?: ObjectRef[]`が他オブジェクトへの参照を持つ。`src/core/constraints.ts`の`resolveRef`が対象の`getSegments`/`getCircle`/スナップ点+transformからワールドのアンカー・接線・半径を算出、`solveConstraints`が**DFSトポロジカル順(対象→依存)**で解決。refsはプレーンデータ=保存・Undo/Redoに乗り再実行で整合回復。循環・欠損はスキップ。2方式:
 1. **プラグイン固有**(`applyRefs`): 依存側が自分のtransform/propsを再構築。角度/長さマーク・接線。
-2. **本体ソルバ直接**(`solveInto`, `ObjectRef.role`予約): `'parallel'`/`'perpendicular'`=回転だけ基準線分に平行/垂直(`angleOffset`加算、排他→`findRotationLock`で回転ハンドル/角度入力を非表示)。`'coincident'`=局所`localAnchor`を基準点へ一致(位置追従)。基準は対象スナップ点(`kind:'point'`+`pointIndex`, `localSnapPoints`で並び共有)or自由座標`worldAnchor`(`targetId:''`)。
+2. **本体ソルバ直接**(`solveReservedRoles`, `ObjectRef.role`予約): **refs配列順=優先度の逐次DOF解決**(位置2・回転1・線分系は長さ1)。`'parallel'`/`'perpendicular'`=回転(`angleOffset`加算、排他)。`'coincident'`=局所`localAnchor`を基準点へ一致。**複数可**: 2本目は回転+長さ(線分=`setFromEndpoints`で伸縮+`localAnchor`書き直し/剛体=距離一致必須)で解く=2点拘束。`'anchor'`(kind:'circle')がcoincidentと同居すると**一致点を通る円への接線**として回転を解く(接点浮動、`t`書き直し。単独時は従来どおり`applyRefs`)。**注意: 端点を円周に一致させた拘束は`{role:'coincident', kind:'circle'}`＝`kind`だけでは接線と区別不能**。接点ハンドルの表示/接点スライドdrag/マスター円の移動追従など「接線らしさ」判定は必ず`findTangentAnchor`(`role==='anchor' && kind==='circle'`)を通す(`kind==='circle'`だけで判定すると円周一致線に旧接線マークが出て、ドラッグで接線化してしまう)。基準は対象スナップ点(`kind:'point'`+`pointIndex`, `localSnapPoints`で並び共有)or自由座標`worldAnchor`(`targetId:''`)。
 
-回転と位置は別成分=合成可。拘束作成は非プラグイン操作ツール(`src/canvas/tools.tsx`の`OPERATION_TOOLS`)。マーカーは`ConstraintMarkers.tsx`常時描画(平行`>>`/垂直L字/一致リング)、`data-constraint-role`クリック→`constraintStore.focused`→解除ピル/Deleteでそのロールのみ除去。端点ドラッグは一致=基準点/平行垂直=反対端を固定。一致点自体も`snapAnchorPoint`で再接続可。
+先着の拘束を厳密に満たし、後着で解けないものは`ConstraintIssue`(過剰拘束)→`constraintStore.issues`→マーカー赤表示。拘束作成は`tryAddRefs`(CanvasStage)が試し解きで却下しトースト表示。回転拘束の判定は`isRotationConstrained`(平行/垂直・一致×2・一致+接線→回転ハンドル/角度入力を非表示)。長さは`isLengthConstrained`(一致×2→パネルの長さ入力を無効化)。パネルの長さ変更(`updateProps`)は線分系(`getEndpoints`)で一致アンカーの`localAnchor`を長さ比で更新し、一致点を固定して反対端だけ伸縮させる。拘束作成は非プラグイン操作ツール(`src/canvas/tools.tsx`の`OPERATION_TOOLS`)。マーカーは`ConstraintMarkers.tsx`常時描画(平行`>>`/垂直L字/一致リング×refs位置)、`data-constraint-role`(+`data-constraint-index`)クリック→`constraintStore.focused`→解除ピル/Deleteでその拘束のみ除去。端点ドラッグは一致=基準点/平行垂直・一致+接線=向き固定で反対端を編集(一致×2は完全拘束=端点編集不可)。一致点ドラッグは`projectAnchorPoint`で**対象オブジェクトの幾何上のみ**スライド(自由基準点のみ`snapAnchorPoint`で再接続可)。**`localAnchor`はオブジェクトのローカル座標=長さで変わるフレーム基準なので`props`(長さ)と対**。2点拘束の線分は解くたびソルバが`localAnchor`+`props`を同フレームへ書き直す＝両者が整合している前提。この整合が崩れると2点拘束の再パラメタ化(`u1/u2`)がずれ長さが発散する。よって**一致マーカーのドラッグは毎tick `props/transform/refs`をドラッグ開始値へ戻してから解く**(`setObjectTransient`。前tickで伸びた`props`を持ち越すと`beforeRefs`の旧フレーム`localAnchor`と食い違い発散)。commitも同様に開始値へ戻してから確定。
 
 ### 状態管理（Zustand）
 

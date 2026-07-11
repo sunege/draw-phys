@@ -5,11 +5,13 @@ import { deserializeDocument } from '../core/document';
 import { pluginRegistry } from '../core/registry';
 import { useAutosave } from '../persistence/useAutosave';
 import { useDocumentStore } from '../state/documentStore';
+import { useLayoutStore } from '../state/layoutStore';
 import { useWorkspaceStore } from '../state/workspaceStore';
 import { EditorModalHost } from '../ui/EditorModalHost';
 import { HintOverlay } from '../ui/HintOverlay';
 import { MenuBar } from '../ui/MenuBar';
 import { PropertyPanel } from '../ui/PropertyPanel';
+import { ResizeHandle } from '../ui/ResizeHandle';
 import { ToastOverlay } from '../ui/ToastOverlay';
 import { Toolbox } from '../ui/Toolbox';
 import { WorkspacePanel } from '../ui/WorkspacePanel';
@@ -44,6 +46,12 @@ export function EditorPage() {
     if (fileId && !fileNode) navigate('/', { replace: true });
   }, [fileId, fileNode, navigate]);
 
+  const leftCollapsed = useLayoutStore((s) => s.leftCollapsed);
+  const rightCollapsed = useLayoutStore((s) => s.rightCollapsed);
+  const bottomCollapsed = useLayoutStore((s) => s.bottomCollapsed);
+  const { resizeLeft, resizeRight, resizeBottom, toggleLeft, toggleRight, toggleBottom } =
+    useLayoutStore.getState();
+
   if (!fileNode) return null;
 
   return (
@@ -51,13 +59,43 @@ export function EditorPage() {
       <MenuBar fileName={fileNode.name} />
       <div className={styles.main}>
         <Toolbox />
+        <ResizeHandle
+          orientation="vertical"
+          sign={1}
+          collapsed={leftCollapsed}
+          onResize={resizeLeft}
+          onToggle={toggleLeft}
+          glyphWhenExpanded="◂"
+          glyphWhenCollapsed="▸"
+          label="ツールボックス"
+        />
         <div className={styles.canvasArea}>
           <CanvasStage />
           <HintOverlay />
           <ToastOverlay />
         </div>
+        <ResizeHandle
+          orientation="vertical"
+          sign={-1}
+          collapsed={rightCollapsed}
+          onResize={resizeRight}
+          onToggle={toggleRight}
+          glyphWhenExpanded="▸"
+          glyphWhenCollapsed="◂"
+          label="プロパティ"
+        />
         <PropertyPanel />
       </div>
+      <ResizeHandle
+        orientation="horizontal"
+        sign={-1}
+        collapsed={bottomCollapsed}
+        onResize={resizeBottom}
+        onToggle={toggleBottom}
+        glyphWhenExpanded="▾"
+        glyphWhenCollapsed="▴"
+        label="ワークスペース"
+      />
       <WorkspacePanel />
       <EditorModalHost />
     </div>

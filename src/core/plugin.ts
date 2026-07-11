@@ -31,8 +31,9 @@ export interface CircleGeometry {
 
 /**
  * 楕円・楕円弧の幾何情報(ローカル座標、媒介変数角度)。
- * トリム・作図補助線(construction)専用。拘束(接線)・スナップ・長さマークの
- * 半径/直径測定には使わない(それらは getCircle=スカラー半径のみを見る)。
+ * トリム・作図補助線(construction)・楕円周へのスナップ/一致(coincident)拘束で使う。
+ * 接線拘束・長さマークの半径/直径測定には使わない(それらは getCircle=スカラー半径のみを見る。
+ * 楕円は接線方向も半径も一意なスカラーにならないため)。
  * startAngle/endAngle は P(t)=(radiusX·cos t, radiusY·sin t) の媒介変数角度であり、
  * radiusX≠radiusY のとき中心から見た真の幾何角とは一致しない点に注意。
  */
@@ -176,7 +177,8 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
    */
   getCircle?(props: P): CircleGeometry | null;
   /**
-   * ローカル座標での楕円/楕円弧の幾何情報。トリム・補助線描画専用(getCircleとは独立)。
+   * ローカル座標での楕円/楕円弧の幾何情報。トリム・補助線描画・楕円周へのスナップ/
+   * 一致拘束の相手になる(getCircleとは独立。接線・半径測定には使わない)。
    */
   getEllipse?(props: P): EllipseGeometry | null;
   /**
@@ -294,8 +296,9 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
    * - 2件 … 分割(自身+新規1個)
    * getSegments を持つ線分系は kind:'segment'、getCircle を持つ円・円弧は kind:'arc' で呼ばれる。
    * これを実装したプラグインだけがトリム対象になる。
+   * pick はクリックしたエッジ(多辺の四角形など、どの線分を切るか区別が要る場合に使う)。
    */
-  trim?(props: P, transform: Transform, keeps: TrimKeep[]): TrimPiece[] | null;
+  trim?(props: P, transform: Transform, keeps: TrimKeep[], pick?: EdgePick): TrimPiece[] | null;
   /**
    * SVG書き出し時に埋め込むCSS(フォント等はdata URIで自己完結させること)。
    * このプラグインのオブジェクトが書き出し対象に含まれる場合のみ呼ばれる。
