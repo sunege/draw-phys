@@ -102,6 +102,11 @@ type DragState =
       startWorld: Point;
       before: Record<string, Transform>;
       moved: boolean;
+      /**
+       * 背面の選択中オブジェクトを最優先でドラッグしている場合、動かさずクリックのみで
+       * 離したときに選択し直す最前面オブジェクト(グループ展開済み)。
+       */
+      pendingSelect?: string[];
     }
   | {
       mode: 'scale';
@@ -247,6 +252,60 @@ function pickSelectedHandle(e: React.PointerEvent, hasSelection: boolean): Eleme
     if (handle) return handle;
   }
   return null;
+}
+
+/**
+ * ポインタ直下にある「選択中かつ非ロック」なオブジェクトのうち最前面のIDを返す。
+ * 前面に別のオブジェクトが重なっていても、選択済みなら最優先でドラッグ移動させるために使う。
+ */
+function pickSelectedUnder(
+  e: React.PointerEvent,
+  objects: SceneObjects,
+  selection: string[],
+): string | null {
+  if (selection.length === 0 || typeof document.elementsFromPoint !== 'function') return null;
+  const sel = new Set(selection);
+  for (const el of document.elementsFromPoint(e.clientX, e.clientY)) {
+    const id = el.closest?.('[data-object-id]')?.getAttribute('data-object-id');
+    if (id && sel.has(id) && objects[id] && !objects[id].locked) return id;
+  }
+  return null;
+}
+
+/**
+ * ポインタ直下にある非ロックなオブジェクトのIDを最前面→最背面の順で重複なく返す。
+ * Alt+クリックの奥選択(サイクル)で重なり順を辿るために使う。
+ */
+function objectsUnderPointer(e: React.PointerEvent, objects: SceneObjects): string[] {
+  if (typeof document.elementsFromPoint !== 'function') return [];
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const el of document.elementsFromPoint(e.clientX, e.clientY)) {
+    const id = el.closest?.('[data-object-id]')?.getAttribute('data-object-id');
+    if (id && !seen.has(id) && objects[id] && !objects[id].locked) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+/** 複数オブジェクトのワールドバウンディングボックスを結合した矩形(ホバー枠用) */
+function hoverOutlineRect(objects: SceneObjects, ids: string[]): Rect | null {
+  const rects: Rect[] = [];
+  for (const id of ids) {
+    const obj = objects[id];
+    const r = obj ? objectWorldBounds(obj) : null;
+    if (r) rects.push(r);
+  }
+  return unionRects(rects);
+}
+
+/** 2つの矩形がほぼ等しいか(ホバー枠の不要な再描画を避ける) */
+function sameRect(a: Rect | null, b: Rect | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 }
 
 function rectsIntersect(a: Rect, b: Rect): boolean {
@@ -581,6 +640,8 @@ export function CanvasStage() {
   const [panning, setPanning] = useState(false);
   const [guides, setGuides] = useState<Guides>({});
   const [marquee, setMarquee] = useState<Rect | null>(null);
+  // ホバー中に「クリックすると選択される対象」を薄く縁取るためのワールド矩形
+  const [hoverRect, setHoverRect] = useState<Rect | null>(null);
   // グラフ範囲ツールのドラッグ矩形(マーキーと区別するため別state・別色)
   const [rangeRect, setRangeRect] = useState<Rect | null>(null);
   /** 回転軸マーカー(赤)。回転ハンドルに触れると表示し、ドラッグで移動できる。選択中のみ有効 */
@@ -613,6 +674,10 @@ export function CanvasStage() {
       setRotatePivot(null);
     }
   }, [selection, rotatePivot]);
+  // 選択ツール以外へ切り替えたらホバー枠を消す(次のポインタ移動を待たずに)
+  useEffect(() => {
+    if (activeTool !== 'select') setHoverRect(null);
+  }, [activeTool]);
   // 拘束モードで1回目に選んだオブジェクト(安定した参照を購読し、枠は描画時に導出)
   const firstPickId = parallelObjId ?? coincidentPick?.objId ?? tangentLineId ?? null;
   const firstPickObj = useDocumentStore((s) => (firstPickId ? s.objects[firstPickId] : undefined));
@@ -974,6 +1039,8 @@ export function CanvasStage() {
       }
     }
     dragOwnerRef.current = e.pointerId;
+    // 操作を始めたらホバー枠は消す(ドラッグ中に残さない)
+    setHoverRect((prev) => (prev === null ? prev : null));
 
     // パン: 中ボタン or 右ドラッグ or Space+左ドラッグ
     // 右ボタンはドラッグせず離した場合(=右クリック)のみ直前ツールを再選択するため、
@@ -1630,6 +1697,23 @@ export function CanvasStage() {
       }
     }
 
+    // Alt+左クリック: ポインタ直下のオブジェクトを最前面→奥へ1つずつ巡回選択する。
+    // 重なりの背後にあるものを、z順の入れ替えなしで掘り下げて選べる。
+    if (e.altKey) {
+      const under = objectsUnderPointer(e, doc.objects);
+      if (under.length > 0) {
+        // 直下で現在選択中の最前面より1つ奥を選ぶ(見つからなければ最前面から)
+        const curIdx = under.findIndex((id) => doc.selection.includes(id));
+        const nextId = under[(curIdx + 1) % under.length];
+        const ids = expandWithGroups(doc.objects, [nextId]);
+        doc.setSelection(ids);
+        const before = buildMoveBefore(doc.objects, ids);
+        dragRef.current = { mode: 'move', hitId: nextId, startWorld: world, before, moved: false };
+        return;
+      }
+      // 直下に何も無ければ通常処理(マーキー等)へ進む
+    }
+
     // オブジェクトのクリック選択+移動ドラッグ開始
     const hit = (e.target as Element).closest('[data-object-id]');
     const hitId = hit?.getAttribute('data-object-id');
@@ -1645,6 +1729,27 @@ export function CanvasStage() {
     if (e.shiftKey) {
       doc.toggleSelection(hitObj.id);
       return;
+    }
+
+    // 選択中オブジェクトの最優先ドラッグ: 前面に別のオブジェクトが重なっていても、
+    // その下に選択中のものがあればドラッグ移動の対象にする(z順の入れ替え不要)。
+    // クリックのみ(動かさず離す)なら従来どおり最前面(hitObj)を選択し直す。
+    if (!doc.selection.includes(hitObj.id)) {
+      const underId = pickSelectedUnder(e, doc.objects, doc.selection);
+      if (underId) {
+        const before = buildMoveBefore(doc.objects, doc.selection);
+        if (Object.keys(before).length > 0) {
+          dragRef.current = {
+            mode: 'move',
+            hitId: hitObj.id,
+            startWorld: world,
+            before,
+            moved: false,
+            pendingSelect: expandWithGroups(doc.objects, [hitObj.id]),
+          };
+          return;
+        }
+      }
     }
 
     // 拘束された長さマーク等: 本体ドラッグは移動ではなく平行オフセットの変更にする
@@ -1671,13 +1776,46 @@ export function CanvasStage() {
     dragRef.current = { mode: 'move', hitId: hitObj.id, startWorld: world, before, moved: false };
   };
 
+  // ホバー枠の更新: 選択ツールでドラッグ中でないとき、クリックで選択される対象を薄く縁取る。
+  // 通常は最前面(ロック済み・選択済みは除く)。Altを押している間はAlt+クリックで選ばれる
+  // 「1つ奥」の対象を先読み表示する。
+  const updateHover = (e: React.PointerEvent) => {
+    if (activeTool !== 'select' || spaceHeld) {
+      setHoverRect((prev) => (prev === null ? prev : null));
+      return;
+    }
+    const doc = useDocumentStore.getState();
+    let targetId: string | undefined;
+    if (e.altKey) {
+      const under = objectsUnderPointer(e, doc.objects);
+      if (under.length > 0) {
+        const curIdx = under.findIndex((id) => doc.selection.includes(id));
+        targetId = under[(curIdx + 1) % under.length];
+      }
+    } else {
+      const id = (e.target as Element).closest?.('[data-object-id]')?.getAttribute('data-object-id');
+      const obj = id ? doc.objects[id] : undefined;
+      // 通常ホバーはロック済み・選択済みを除く(選択枠と二重にしない)
+      if (id && obj && !obj.locked && !doc.selection.includes(id)) targetId = id;
+    }
+    if (!targetId) {
+      setHoverRect((prev) => (prev === null ? prev : null));
+      return;
+    }
+    const rect = hoverOutlineRect(doc.objects, expandWithGroups(doc.objects, [targetId]));
+    setHoverRect((prev) => (sameRect(prev, rect) ? prev : rect));
+  };
+
   const onPointerMove = (e: React.PointerEvent) => {
     lastPointerScreenRef.current = { x: e.clientX, y: e.clientY };
     if (e.pointerType === 'touch' && touchPointers.current.has(e.pointerId)) {
       touchPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }
     const drag = dragRef.current;
-    if (!drag) return;
+    if (!drag) {
+      updateHover(e);
+      return;
+    }
 
     if (drag.mode === 'pan') {
       useViewportStore.getState().panBy(e.clientX - drag.lastX, e.clientY - drag.lastY);
@@ -2151,6 +2289,8 @@ export function CanvasStage() {
     if (drag.mode === 'move' && drag.moved) {
       doc.commitTransforms(drag.before);
     } else if (drag.mode === 'move') {
+      // 背面の選択物を最優先ドラッグしていて、動かさずクリックしただけなら最前面を選択し直す
+      if (drag.pendingSelect) doc.setSelection(drag.pendingSelect);
       // 移動なしのクリック: 同一オブジェクトへの2連続クリックで大型エディタを開く
       const cur: ClickRecord = { id: drag.hitId, time: e.timeStamp, x: e.clientX, y: e.clientY };
       if (isDoubleClick(lastClickRef.current, cur)) {
@@ -2389,6 +2529,7 @@ export function CanvasStage() {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onPointerLeave={() => setHoverRect((prev) => (prev === null ? prev : null))}
         onContextMenu={(e) => e.preventDefault()}
       >
         <GridLayer viewWidth={size.width} viewHeight={size.height} />
@@ -2434,6 +2575,19 @@ export function CanvasStage() {
           </g>
         )}
         <g pointerEvents="none">
+          {hoverRect && (
+            <rect
+              x={hoverRect.x}
+              y={hoverRect.y}
+              width={hoverRect.width}
+              height={hoverRect.height}
+              fill="none"
+              stroke="#2b7de9"
+              strokeWidth={1 / zoom}
+              strokeDasharray={`${3 / zoom} ${2 / zoom}`}
+              opacity={0.7}
+            />
+          )}
           {marquee && (
             <rect
               x={marquee.x}
