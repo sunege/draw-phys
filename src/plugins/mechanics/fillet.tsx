@@ -35,11 +35,11 @@ export const filletPlugin: PhysicsObjectPlugin<FilletProps> = {
   id: 'mech.fillet',
   version: 1,
   name: 'なめらか接続',
-  category: '力学',
+  category: '編集',
   Icon: () => (
     <svg width="20" height="20" viewBox="0 0 24 24">
       <path
-        d="M3 20 L10 20 A10 10 0 0 1 20 10 L20 3"
+        d="M3 20 L10 20 A10 10 0 0 0 20 10 L20 3"
         fill="none"
         stroke="currentColor"
         strokeWidth="2"

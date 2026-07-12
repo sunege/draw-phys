@@ -573,6 +573,8 @@ export function CanvasStage() {
    * フォーカスしたtextareaを即blurしてしまうのを避けるため。
    */
   const pendingInlineEditRef = useRef<string | null>(null);
+  /** 直近のポインタ位置(スクリーン座標)。Ctrl+V貼付け時にカーソル位置を基準にするため常に更新する */
+  const lastPointerScreenRef = useRef<Point | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [panning, setPanning] = useState(false);
@@ -782,9 +784,9 @@ export function CanvasStage() {
       const target = chooseClipboardTarget(imageKey);
       if (target === 'none') return; // 貼るものが無ければ既定に任せる
       e.preventDefault();
+      const svg = svgRef.current;
+      const { pan, zoom } = useViewportStore.getState();
       if (target === 'image') {
-        const svg = svgRef.current;
-        const { pan, zoom } = useViewportStore.getState();
         let center: Point = { x: 0, y: 0 };
         if (svg) {
           const rect = svg.getBoundingClientRect();
@@ -792,7 +794,10 @@ export function CanvasStage() {
         }
         void insertImagesFromBlobs(blobs, center);
       } else {
-        pasteClipboard();
+        // カーソルがキャンバス上に乗っていればそこが外接矩形の左上に来るよう配置する
+        const screenPt = lastPointerScreenRef.current;
+        const cursorWorld = svg && screenPt ? screenToWorld(screenPt.x, screenPt.y, svg, pan, zoom) : undefined;
+        pasteClipboard(cursorWorld);
       }
     };
     window.addEventListener('paste', onPaste);
@@ -901,9 +906,27 @@ export function CanvasStage() {
     } else if (activeTool === GRAPH_RANGE_TOOL) {
       setHint({ title: 'グラフ範囲', message: 'グラフ内をドラッグして表示範囲を指定（Escで終了）' });
     } else {
-      setHint(null);
+      // pick-segments配置のプラグイン(なめらか接続・角度マーク)は種別を問わず汎用に案内する
+      const plugin = pluginRegistry.get(activeTool);
+      if (plugin?.placement === 'pick-segments') {
+        setHint(
+          segPicks.length > 0
+            ? {
+                title: plugin.name,
+                message: '接続するもう一方の線・辺をクリック（Escで終了）',
+                step: { current: 2, total: 2 },
+              }
+            : {
+                title: plugin.name,
+                message: '接続する線・辺を1つ目にクリック（Escで終了）',
+                step: { current: 1, total: 2 },
+              },
+        );
+      } else {
+        setHint(null);
+      }
     }
-  }, [activeTool, parallelObjId, coincidentPick, tangentLineId, mirrorArmed, symmetryPick]);
+  }, [activeTool, parallelObjId, coincidentPick, tangentLineId, mirrorArmed, symmetryPick, segPicks]);
 
   // アンマウント時にヒントを片付ける
   useEffect(() => () => useHintStore.getState().clearHint(), []);
@@ -1644,6 +1667,7 @@ export function CanvasStage() {
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    lastPointerScreenRef.current = { x: e.clientX, y: e.clientY };
     if (e.pointerType === 'touch' && touchPointers.current.has(e.pointerId)) {
       touchPointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }

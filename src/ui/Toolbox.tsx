@@ -1,5 +1,5 @@
 import { useMemo, useState, type ComponentType } from 'react';
-import { OPERATION_TOOLS } from '../canvas/tools';
+import { GRAPH_RANGE_TOOL, MIRROR_TOOL, OPERATION_TOOLS, SPLIT_TOOL, TRIM_TOOL } from '../canvas/tools';
 import { SHIFT_TOOL_SHORTCUTS, TOOL_SHORTCUTS } from '../canvas/toolShortcuts';
 import { pluginRegistry } from '../core/registry';
 import { LEFT_CFG, useLayoutStore } from '../state/layoutStore';
@@ -28,6 +28,14 @@ const CATEGORY_ORDER = [
   '原子',
 ];
 
+/**
+ * カテゴリ内での項目の並び順(明示指定分のみ)。指定の無いカテゴリは登録順のまま。
+ * '編集' はプラグイン(なめらか接続)と操作ツールが混在するため、意図した並びを明示する。
+ */
+const ITEM_ORDER: Partial<Record<string, string[]>> = {
+  編集: [TRIM_TOOL, SPLIT_TOOL, 'mech.fillet', MIRROR_TOOL, GRAPH_RANGE_TOOL],
+};
+
 /** プラグイン図形と操作ツールをカテゴリ別に統合し、CATEGORY_ORDER 順で返す */
 function toolsByCategory(): [string, ToolItem[]][] {
   const map = new Map<string, ToolItem[]>();
@@ -40,6 +48,20 @@ function toolsByCategory(): [string, ToolItem[]][] {
     for (const p of plugins) add(category, { id: p.id, name: p.name, Icon: p.Icon });
   }
   for (const t of OPERATION_TOOLS) add(t.category, { id: t.id, name: t.name, Icon: t.Icon });
+
+  // ITEM_ORDER に指定があるカテゴリはその順へ並べ替え(未掲載idは末尾に登録順で維持)
+  for (const [category, order] of Object.entries(ITEM_ORDER)) {
+    const items = map.get(category);
+    if (!items || !order) continue;
+    const rankItem = (id: string) => {
+      const i = order.indexOf(id);
+      return i === -1 ? order.length : i;
+    };
+    map.set(
+      category,
+      [...items].sort((a, b) => rankItem(a.id) - rankItem(b.id)),
+    );
+  }
 
   // CATEGORY_ORDER に載っているものを先に、載っていないものは末尾へ(挿入順を維持)
   const rank = (c: string) => {

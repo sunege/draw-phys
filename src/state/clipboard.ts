@@ -1,4 +1,7 @@
 import type { SceneObject } from '../core/document';
+import { unionRects, worldBounds } from '../core/geometry';
+import { pluginRegistry } from '../core/registry';
+import type { Point } from '../core/types';
 import { useDocumentStore } from './documentStore';
 
 /** アプリ内クリップボード(図形のコピー/貼付け) */
@@ -74,7 +77,13 @@ export function copySelection(): void {
   blurredSinceCopy = false;
 }
 
-export function pasteClipboard(): void {
+/**
+ * クリップボード(アプリ内コピー)の内容を貼り付ける。
+ * cursorWorld を渡すと、コピー範囲の外接矩形の左上がその座標へ来るようにずらして貼る
+ * (Ctrl+V=マウス位置基準)。省略時は元の位置から少しずつオフセットして重ね貼りする
+ * (Ctrl+D の複製=元の近くに置きたいため)。
+ */
+export function pasteClipboard(cursorWorld?: Point): void {
   if (buffer.length === 0) return;
   pasteCount += 1;
   const store = useDocumentStore.getState();
@@ -84,6 +93,23 @@ export function pasteClipboard(): void {
   // 旧ID→新IDの対応。コピー範囲内を指す拘束(refs)を貼付け後のオブジェクトへ張り替えるため先に採番する
   const idMap = new Map<string, string>();
   for (const obj of buffer) idMap.set(obj.id, crypto.randomUUID());
+
+  let dx = PASTE_OFFSET * pasteCount;
+  let dy = PASTE_OFFSET * pasteCount;
+  if (cursorWorld) {
+    const rects = buffer
+      .map((obj) => {
+        const plugin = pluginRegistry.get(obj.pluginId);
+        return plugin ? worldBounds(plugin.getBounds(obj.props), obj.transform) : null;
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+    const box = unionRects(rects);
+    if (box) {
+      dx = cursorWorld.x - box.x;
+      dy = cursorWorld.y - box.y;
+    }
+  }
+
   const clones = buffer.map((obj) => {
     let groupId = obj.groupId;
     if (groupId) {
@@ -102,8 +128,8 @@ export function pasteClipboard(): void {
       ),
       transform: {
         ...obj.transform,
-        x: obj.transform.x + PASTE_OFFSET * pasteCount,
-        y: obj.transform.y + PASTE_OFFSET * pasteCount,
+        x: obj.transform.x + dx,
+        y: obj.transform.y + dy,
       },
     };
   });
