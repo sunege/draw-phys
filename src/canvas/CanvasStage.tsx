@@ -39,6 +39,7 @@ import {
 import { useConstraintStore } from '../state/constraintStore';
 import { expandWithGroups, useDocumentStore } from '../state/documentStore';
 import { useEditorModalStore } from '../state/editorModalStore';
+import { useHelpStore } from '../state/helpStore';
 import { useHintStore } from '../state/hintStore';
 import { useInlineTextEditStore } from '../state/inlineTextEditStore';
 import { useToastStore } from '../state/toastStore';
@@ -749,6 +750,10 @@ export function CanvasStage() {
         // 選択オブジェクトを最前面(f)/最背面(b)へ
         e.preventDefault();
         doc.reorderSelection(key === 'f' ? 'front' : 'back');
+      } else if (!mod && !e.altKey && e.key === '?') {
+        // ユーザーガイドの開閉(メニューバーの「ガイド」と同じ)
+        e.preventDefault();
+        useHelpStore.getState().toggle();
       } else if (e.key === 'Escape') {
         useToolStore.getState().setActiveTool('select');
         doc.clearSelection();

@@ -3,9 +3,11 @@ import { worldBounds } from '../core/geometry';
 import { orderedPageFrames } from '../core/pageFrames';
 import { pluginRegistry } from '../core/registry';
 import { useDocumentStore } from '../state/documentStore';
+import { useHelpStore } from '../state/helpStore';
 import { useToastStore } from '../state/toastStore';
 import { useViewportStore } from '../state/viewportStore';
 import { ExportDialog } from './ExportDialog';
+import { HelpDialog } from './HelpDialog';
 import styles from './MenuBar.module.css';
 
 export function MenuBar({ fileName }: { fileName?: string }) {
@@ -43,6 +45,8 @@ export function MenuBar({ fileName }: { fileName?: string }) {
   const setSnapEnabled = useViewportStore((s) => s.setSnapEnabled);
   const setSnapDivision = useViewportStore((s) => s.setSnapDivision);
   const resetView = useViewportStore((s) => s.resetView);
+  const helpOpen = useHelpStore((s) => s.open);
+  const setHelpOpen = useHelpStore((s) => s.setOpen);
 
   // 書き出しの既定設定(選択優先・PNG)でクリップボードへコピーし、完了をトースト表示
   const onCopy = async () => {
@@ -173,9 +177,18 @@ export function MenuBar({ fileName }: { fileName?: string }) {
       <button type="button" className={styles.zoomButton} onClick={resetView} title="表示をリセット">
         {Math.round(zoom * 100)}%
       </button>
+      <button
+        type="button"
+        className={styles.iconButton}
+        onClick={() => setHelpOpen(true)}
+        title="ユーザーガイド (?)"
+      >
+        ❓ ガイド
+      </button>
       {exportOpen && (
         <ExportDialog fileName={fileName ?? '図'} onClose={() => setExportOpen(false)} />
       )}
+      {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
     </header>
   );
 }
