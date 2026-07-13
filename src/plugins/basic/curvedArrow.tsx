@@ -1,14 +1,15 @@
-import { angleOfVector, reflectAngle, reflectPoint } from '../../core/geometry';
+import { angleOfVector, reflectAngle, reflectPoint, worldToLocal } from '../../core/geometry';
 import type { PhysicsObjectPlugin } from '../../core/plugin';
 import {
   arcPathDeg,
   clampSweep,
   curvedArrowBounds,
+  curvedArrowDragEnd,
   curvedArrowPaths,
   dirSign,
   endAngleOf,
 } from './curvedArrowMath';
-import { ellipsePointAt } from './ellipseMath';
+import { ellipseParamAngle, ellipsePointAt } from './ellipseMath';
 import { dashArray, hitStrokeWidth, lineStyleField, type LineStyle } from './lineUtils';
 
 interface CurvedArrowProps {
@@ -111,6 +112,27 @@ export const curvedArrowPlugin: PhysicsObjectPlugin<CurvedArrowProps> = {
     radiusX: props.radiusX * fx,
     radiusY: props.radiusY * fy,
   }),
+  // 始点(尾)・終点(矢先)ハンドル。ドラッグで各端の媒介変数角を視覚的に変える。
+  // 反対の端と回転の向きは固定したまま掃引角を計算し直す
+  getParts: (props) => [
+    {
+      id: 'start',
+      local: ellipsePointAt(props.radiusX, props.radiusY, props.startAngle),
+      title: '始点をドラッグ',
+    },
+    {
+      id: 'end',
+      local: ellipsePointAt(props.radiusX, props.radiusY, endAngleOf(props)),
+      title: '終点(矢先)をドラッグ',
+    },
+  ],
+  movePart: (props, transform, partId, _fromWorld, toWorld) => {
+    if (partId !== 'start' && partId !== 'end') return props;
+    const local = worldToLocal(toWorld, transform);
+    const target = ellipseParamAngle(props.radiusX, props.radiusY, local);
+    const { startAngle, sweep } = curvedArrowDragEnd(props, partId, target);
+    return { ...props, startAngle: Math.round(startAngle), sweep: Math.round(sweep) };
+  },
   // 鏡像: 手性(回転の向き)を反転させるため開始角を負反転し ccw をトグル、位置・回転を軸に対して反転する
   mirror: (props, t, a, b) => {
     const c = reflectPoint({ x: t.x, y: t.y }, a, b);

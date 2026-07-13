@@ -1,3 +1,4 @@
+import { normalizeAngle180, normalizeAngle360 } from '../../core/geometry';
 import type { Point, Rect } from '../../core/types';
 import { ellipsePointAt } from './ellipseMath';
 
@@ -48,6 +49,26 @@ export function ellipseTangentAt(rx: number, ry: number, deg: number, dir: 1 | -
 /** 終了角(度) */
 export function endAngleOf(shape: CurvedArrowShape): number {
   return shape.startAngle + dirSign(shape.ccw) * clampSweep(shape.sweep);
+}
+
+/**
+ * 端点ドラッグで一方の媒介変数角を targetDeg に変えたときの新パラメータ。
+ * 反対側の端点と回転の向き(ccw)は固定したまま、掃引角 sweep を計算し直す。
+ * start をドラッグ→終端固定で開始角を更新、end をドラッグ→始端固定で掃引角を更新。
+ */
+export function curvedArrowDragEnd(
+  shape: CurvedArrowShape,
+  end: 'start' | 'end',
+  targetDeg: number,
+): { startAngle: number; sweep: number } {
+  const dir = dirSign(shape.ccw);
+  if (end === 'start') {
+    const endDeg = endAngleOf(shape);
+    const sweep = normalizeAngle360(dir * (endDeg - targetDeg)) || 360;
+    return { startAngle: normalizeAngle180(targetDeg), sweep: clampSweep(sweep) };
+  }
+  const sweep = normalizeAngle360(dir * (targetDeg - shape.startAngle)) || 360;
+  return { startAngle: normalizeAngle180(shape.startAngle), sweep: clampSweep(sweep) };
 }
 
 /**

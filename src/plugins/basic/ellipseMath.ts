@@ -9,6 +9,14 @@ export function ellipsePointAt(rx: number, ry: number, deg: number): Point {
   return { x: rx * Math.cos(rad), y: ry * Math.sin(rad) };
 }
 
+/**
+ * 楕円周上のローカル点から媒介変数角(度)を求める。ellipsePointAtの逆変換。
+ * cos t = x/rx, sin t = y/ry より t = atan2(y/ry, x/rx)。円(rx=ry)では通常の偏角に一致する。
+ */
+export function ellipseParamAngle(rx: number, ry: number, local: Point): number {
+  return Math.atan2(local.y / ry, local.x / rx) / DEG;
+}
+
 /** 楕円弧のSVGパス(中心原点) */
 export function ellipseArcPath(rx: number, ry: number, startAngle: number, endAngle: number): string {
   const delta = sweepDelta(startAngle, endAngle);

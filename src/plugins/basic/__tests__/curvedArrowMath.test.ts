@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { normalizeAngle180 } from '../../../core/geometry';
 import {
   arrowHeadPoints,
   clampSweep,
   curvedArrowBounds,
+  curvedArrowDragEnd,
   curvedArrowPaths,
   dirSign,
   ellipseTangentAt,
@@ -93,6 +95,33 @@ describe('arrowHeadPoints', () => {
     const pts = s.split(' ');
     expect(pts).toHaveLength(3);
     expect(pts[0]).toBe('10,0');
+  });
+});
+
+describe('curvedArrowDragEnd', () => {
+  it('endドラッグ: 始端を固定し、掃引角だけ変える', () => {
+    // ccw(dir=-1) startAngle=-45。終点を -45-90=-135 の位置へ動かす
+    const r = curvedArrowDragEnd(ccw, 'end', -135);
+    expect(r.startAngle).toBe(-45);
+    expect(r.sweep).toBeCloseTo(90);
+    // 動かした終点が実際に狙った角度になる
+    expect(endAngleOf({ ...ccw, ...r })).toBeCloseTo(-135);
+  });
+
+  it('startドラッグ: 終端を固定し、開始角を変える', () => {
+    const endBefore = endAngleOf(cw); // 45+270 = 315
+    const r = curvedArrowDragEnd(cw, 'start', 90);
+    expect(r.startAngle).toBe(90);
+    // 終点(絶対位置)は変わらない: 90 + 225 = 315
+    expect(normalizeAngle180(endAngleOf({ ...cw, ...r }))).toBeCloseTo(
+      normalizeAngle180(endBefore),
+    );
+  });
+
+  it('掃引角は[1,360]にクランプされる', () => {
+    // 終点に一致させると掃引0→360扱い
+    const r = curvedArrowDragEnd(cw, 'end', cw.startAngle);
+    expect(r.sweep).toBe(360);
   });
 });
 

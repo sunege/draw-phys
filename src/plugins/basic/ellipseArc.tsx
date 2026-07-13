@@ -4,12 +4,18 @@ import {
   normalizeAngle360,
   reflectAngle,
   reflectPoint,
+  worldToLocal,
 } from '../../core/geometry';
 import type { PhysicsObjectPlugin, TrimPiece } from '../../core/plugin';
 import { isFullArc, sweepDelta } from './arc';
 import { CenterMark } from './CenterMark';
 import { centerDefaults, centerFields } from './centerFields';
-import { ellipseArcBounds, ellipseArcPath, ellipsePointAt } from './ellipseMath';
+import {
+  ellipseArcBounds,
+  ellipseArcPath,
+  ellipseParamAngle,
+  ellipsePointAt,
+} from './ellipseMath';
 import { dashArray, lineStyleField, type LineStyle } from './lineUtils';
 
 interface EllipseArcProps {
@@ -106,6 +112,31 @@ export const ellipseArcPlugin: PhysicsObjectPlugin<EllipseArcProps> = {
     radiusX: props.radiusX * fx,
     radiusY: props.radiusY * fy,
   }),
+  // 開始点・終了点ハンドル。ドラッグで各媒介変数角を視覚的に変える(半径・中心は保つ)
+  getParts: (props) => {
+    if (isFullArc(props.startAngle, props.endAngle)) return [];
+    return [
+      {
+        id: 'start',
+        local: ellipsePointAt(props.radiusX, props.radiusY, props.startAngle),
+        title: '開始角をドラッグ',
+      },
+      {
+        id: 'end',
+        local: ellipsePointAt(props.radiusX, props.radiusY, props.endAngle),
+        title: '終了角をドラッグ',
+      },
+    ];
+  },
+  movePart: (props, transform, partId, _fromWorld, toWorld) => {
+    const local = worldToLocal(toWorld, transform);
+    const angle = Math.round(
+      normalizeAngle180(ellipseParamAngle(props.radiusX, props.radiusY, local)),
+    );
+    if (partId === 'start') return { ...props, startAngle: angle };
+    if (partId === 'end') return { ...props, endAngle: angle };
+    return props;
+  },
   // トリム: 残す各区間[fromDeg,toDeg]を新しい楕円弧として作り直す(掃引の一部を残す)
   trim(props, transform, keeps) {
     const pieces: TrimPiece[] = [];

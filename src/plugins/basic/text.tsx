@@ -14,6 +14,10 @@ interface TextProps {
   bold: boolean;
   /** 背景を白で塗る(背後の図形と干渉して読みづらいときに使う) */
   bg: boolean;
+  /** 選択矩形と同じ位置に枠線を描く */
+  border: boolean;
+  borderColor: string;
+  borderWidth: number;
 }
 
 const LINE_HEIGHT = 1.25;
@@ -27,12 +31,12 @@ function estimateLineWidth(line: string, fontSize: number): number {
   return em * fontSize;
 }
 
-/** テキストの外接矩形(背景と選択枠で共有)。bg=true のときはパディング分だけ広げる */
+/** テキストの外接矩形(背景・枠線・選択枠で共有)。bg/border=true のときはパディング分だけ広げる */
 function textBounds(props: TextProps): Rect {
   const lines = props.text.split('\n');
   const width = Math.max(...lines.map((l) => estimateLineWidth(l, props.fontSize)), 10);
   const height = lines.length * props.fontSize * LINE_HEIGHT;
-  const pad = props.bg ? props.fontSize * 0.2 : 0;
+  const pad = props.bg || props.border ? props.fontSize * 0.2 : 0;
   return {
     x: -width / 2 - pad,
     y: -height / 2 - pad,
@@ -58,6 +62,9 @@ export const textPlugin: PhysicsObjectPlugin<TextProps> = {
     color: '#000000',
     bold: false,
     bg: false,
+    border: false,
+    borderColor: '#000000',
+    borderWidth: 1,
   },
   defaultSize: { width: 80, height: 25 },
   propertySchema: [
@@ -67,6 +74,9 @@ export const textPlugin: PhysicsObjectPlugin<TextProps> = {
     { key: 'color', label: '色', type: 'color' },
     { key: 'bold', label: '太字', type: 'boolean' },
     { key: 'bg', label: '背景', type: 'boolean' },
+    { key: 'border', label: '枠線', type: 'boolean' },
+    { key: 'borderColor', label: '枠線の色', type: 'color' },
+    { key: 'borderWidth', label: '枠線の幅', type: 'number', min: 0, step: 0.5 },
   ],
   Renderer: ({ props, objectId, interactive }) => {
     const isInlineTarget = useInlineTextEditStore((s) => s.objectId === objectId);
@@ -150,6 +160,18 @@ export const textPlugin: PhysicsObjectPlugin<TextProps> = {
       <g>
         {props.bg && (
           <rect x={b.x} y={b.y} width={b.width} height={b.height} rx={2} fill="#ffffff" />
+        )}
+        {props.border && (
+          <rect
+            x={b.x}
+            y={b.y}
+            width={b.width}
+            height={b.height}
+            rx={2}
+            fill="none"
+            stroke={props.borderColor}
+            strokeWidth={props.borderWidth}
+          />
         )}
         <text
           fill={props.color}

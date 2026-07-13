@@ -31,6 +31,10 @@ export interface LatexDocProps {
   align: 'left' | 'center' | 'right';
   /** 背景を白で塗る(背後の図形と干渉して読みづらいときに使う) */
   bg: boolean;
+  /** 選択矩形(枠)と同じ位置に枠線を描く */
+  border: boolean;
+  borderColor: string;
+  borderWidth: number;
 }
 
 /** 折り返し後のコンテンツ高(実測・キャッシュ付き) */
@@ -93,6 +97,9 @@ export const latexDocPlugin: PhysicsObjectPlugin<LatexDocProps> = {
     lineHeight: 1.6,
     align: 'left',
     bg: false,
+    border: false,
+    borderColor: '#000000',
+    borderWidth: 1,
   },
   defaultSize: { width: 280, height: 80 },
   propertySchema: [
@@ -114,13 +121,17 @@ export const latexDocPlugin: PhysicsObjectPlugin<LatexDocProps> = {
     },
     { key: 'color', label: '色', type: 'color' },
     { key: 'bg', label: '背景', type: 'boolean' },
+    { key: 'border', label: '枠線', type: 'boolean' },
+    { key: 'borderColor', label: '枠線の色', type: 'color' },
+    { key: 'borderWidth', label: '枠線の幅', type: 'number', min: 0, step: 0.5 },
   ],
   Renderer: ({ props }) => {
     const h = contentHeight(props);
     const b = docBounds(props.width, props.height, h);
     return (
       <g>
-        {/* bg=false でも transparent で枠全体を当たり判定にする(空文章でも選択できる) */}
+        {/* bg=false でも transparent で枠全体を当たり判定にする(空文章でも選択できる)。
+            border=true のときは選択矩形と同じこの枠に枠線を描く */}
         <rect
           x={b.x}
           y={b.y}
@@ -128,6 +139,8 @@ export const latexDocPlugin: PhysicsObjectPlugin<LatexDocProps> = {
           height={b.height}
           rx={2}
           fill={props.bg ? '#ffffff' : 'transparent'}
+          stroke={props.border ? props.borderColor : 'none'}
+          strokeWidth={props.border ? props.borderWidth : undefined}
         />
         <foreignObject x={-props.width / 2} y={-props.height / 2} width={props.width} height={h}>
           <div

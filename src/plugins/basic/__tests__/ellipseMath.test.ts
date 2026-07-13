@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { ellipseArcBounds, ellipseArcPath, ellipsePointAt } from '../ellipseMath';
+import { normalizeAngle180 } from '../../../core/geometry';
+import {
+  ellipseArcBounds,
+  ellipseArcPath,
+  ellipseParamAngle,
+  ellipsePointAt,
+} from '../ellipseMath';
 
 describe('ellipsePointAt', () => {
   it('rx≠ryのとき軸ごとに異なる半径でスケールする', () => {
@@ -7,6 +13,19 @@ describe('ellipsePointAt', () => {
     const p = ellipsePointAt(50, 30, 90);
     expect(p.x).toBeCloseTo(0);
     expect(p.y).toBeCloseTo(30);
+  });
+});
+
+describe('ellipseParamAngle', () => {
+  it('ellipsePointAtの逆変換になっている(往復)', () => {
+    for (const deg of [-135, -45, 0, 30, 90, 170]) {
+      const p = ellipsePointAt(50, 30, deg);
+      expect(normalizeAngle180(ellipseParamAngle(50, 30, p))).toBeCloseTo(deg);
+    }
+  });
+  it('円(rx=ry)では通常の偏角に一致する', () => {
+    expect(ellipseParamAngle(40, 40, { x: 0, y: 40 })).toBeCloseTo(90);
+    expect(ellipseParamAngle(40, 40, { x: -40, y: 0 })).toBeCloseTo(180);
   });
 });
 

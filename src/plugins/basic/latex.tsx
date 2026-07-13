@@ -16,6 +16,10 @@ interface LatexProps {
   color: string;
   /** 背景を白で塗る(背後の図形と干渉して読みづらいときに使う) */
   bg: boolean;
+  /** 選択矩形と同じ位置に枠線を描く */
+  border: boolean;
+  borderColor: string;
+  borderWidth: number;
 }
 
 /**
@@ -133,6 +137,9 @@ export const latexPlugin: PhysicsObjectPlugin<LatexProps> = {
     fontSize: 12,
     color: '#000000',
     bg: false,
+    border: false,
+    borderColor: '#000000',
+    borderWidth: 1,
   },
   defaultSize: { width: 100, height: 34 },
   propertySchema: [
@@ -140,20 +147,31 @@ export const latexPlugin: PhysicsObjectPlugin<LatexProps> = {
     { key: 'fontSize', label: 'サイズ', type: 'number', min: 6, step: 2 },
     { key: 'color', label: '色', type: 'color' },
     { key: 'bg', label: '背景', type: 'boolean' },
+    { key: 'border', label: '枠線', type: 'boolean' },
+    { key: 'borderColor', label: '枠線の色', type: 'color' },
+    { key: 'borderWidth', label: '枠線の幅', type: 'number', min: 0, step: 0.5 },
   ],
   Renderer: ({ props }) => {
     const { width, height } = measureFormula(props.formula, props.fontSize);
-    const pad = props.fontSize * 0.2;
+    // bg/border があるときだけパディングを入れ、選択矩形(getBounds)と一致させる
+    const pad = props.bg || props.border ? props.fontSize * 0.2 : 0;
+    const bx = -width / 2 - pad;
+    const by = -height / 2 - pad;
+    const bw = width + pad * 2;
+    const bh = height + pad * 2;
     return (
       <g>
-        {props.bg && (
+        {props.bg && <rect x={bx} y={by} width={bw} height={bh} rx={2} fill="#ffffff" />}
+        {props.border && (
           <rect
-            x={-width / 2 - pad}
-            y={-height / 2 - pad}
-            width={width + pad * 2}
-            height={height + pad * 2}
+            x={bx}
+            y={by}
+            width={bw}
+            height={bh}
             rx={2}
-            fill="#ffffff"
+            fill="none"
+            stroke={props.borderColor}
+            strokeWidth={props.borderWidth}
           />
         )}
         <foreignObject x={-width / 2} y={-height / 2} width={width} height={height}>
@@ -175,7 +193,7 @@ export const latexPlugin: PhysicsObjectPlugin<LatexProps> = {
   },
   getBounds: (props): Rect => {
     const { width, height } = measureFormula(props.formula, props.fontSize);
-    const pad = props.bg ? props.fontSize * 0.2 : 0;
+    const pad = props.bg || props.border ? props.fontSize * 0.2 : 0;
     return {
       x: -width / 2 - pad,
       y: -height / 2 - pad,
