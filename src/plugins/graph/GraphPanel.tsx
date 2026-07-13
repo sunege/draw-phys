@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { ColorField } from '../../ui/ColorField';
+import { NumberInput } from '../../ui/NumberInput';
 import { useDocumentStore } from '../../state/documentStore';
 import type { LineStyle } from '../basic/lineUtils';
 import type { LabelContent } from '../basic/objectLabel';
@@ -39,18 +41,7 @@ function Num({
   return (
     <label className={styles.field} title={title}>
       <span className={styles.label}>{label}</span>
-      <input
-        type="number"
-        value={value}
-        min={min}
-        max={max}
-        step={step}
-        onFocus={(e) => e.currentTarget.select()}
-        onChange={(e) => {
-          const n = Number(e.target.value);
-          if (!Number.isNaN(n)) onChange(n);
-        }}
-      />
+      <NumberInput value={value} min={min} max={max} step={step} onCommit={onChange} />
     </label>
   );
 }
@@ -86,7 +77,7 @@ function Color({
   return (
     <label className={styles.field}>
       <span className={styles.label}>{label}</span>
-      <input type="color" value={value} onChange={(e) => onChange(e.target.value)} />
+      <ColorField value={value} onChange={onChange} />
     </label>
   );
 }
@@ -172,28 +163,12 @@ function OffsetPair({
   dy: number;
   onChange: (dx: number, dy: number) => void;
 }) {
-  const handle = (value: string, other: number, isX: boolean) => {
-    const n = Number(value);
-    if (Number.isNaN(n)) return;
-    if (isX) onChange(n, other);
-    else onChange(other, n);
-  };
   return (
     <div className={styles.field} title="ラベルの位置補正(px)。キャンバス上のドラッグでも動かせる">
       <span className={styles.label}>{label}</span>
       <span className={styles.pair}>
-        <input
-          type="number"
-          value={dx}
-          onFocus={(e) => e.currentTarget.select()}
-          onChange={(e) => handle(e.target.value, dy, true)}
-        />
-        <input
-          type="number"
-          value={dy}
-          onFocus={(e) => e.currentTarget.select()}
-          onChange={(e) => handle(e.target.value, dx, false)}
-        />
+        <NumberInput value={dx} onCommit={(n) => onChange(n, dy)} />
+        <NumberInput value={dy} onCommit={(n) => onChange(dx, n)} />
       </span>
     </div>
   );
@@ -215,9 +190,8 @@ function FunctionCard({
   onRemove: (id: string) => void;
 }) {
   const compiled = compileExpression(plot.expression);
-  const setDomain = (value: string, key: 'min' | 'max') => {
-    const n = Number(value);
-    if (Number.isNaN(n) || !plot.domain) return;
+  const setDomain = (n: number, key: 'min' | 'max') => {
+    if (!plot.domain) return;
     onChange(plot.id, { domain: { ...plot.domain, [key]: n } });
   };
   return (
@@ -272,18 +246,8 @@ function FunctionCard({
         <div className={styles.field}>
           <span className={styles.label}>定義域</span>
           <span className={styles.pair}>
-            <input
-              type="number"
-              value={plot.domain.min}
-              onFocus={(e) => e.currentTarget.select()}
-              onChange={(e) => setDomain(e.target.value, 'min')}
-            />
-            <input
-              type="number"
-              value={plot.domain.max}
-              onFocus={(e) => e.currentTarget.select()}
-              onChange={(e) => setDomain(e.target.value, 'max')}
-            />
+            <NumberInput value={plot.domain.min} onCommit={(n) => setDomain(n, 'min')} />
+            <NumberInput value={plot.domain.max} onCommit={(n) => setDomain(n, 'max')} />
           </span>
         </div>
       )}

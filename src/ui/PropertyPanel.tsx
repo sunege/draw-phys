@@ -11,7 +11,9 @@ import {
   type ReorderMode,
 } from '../state/documentStore';
 import { RIGHT_CFG, RIGHT_NARROW_BELOW, useLayoutStore } from '../state/layoutStore';
+import { ColorField } from './ColorField';
 import { computeCommonFields } from './commonPropertyFields';
+import { NumberInput } from './NumberInput';
 import styles from './PropertyPanel.module.css';
 
 /** パネル幅・折りたたみ・2行化(狭幅reflow)をまとめて適用する共通の外枠 */
@@ -234,20 +236,15 @@ function FieldInput({
   switch (field.type) {
     case 'number':
       return (
-        <input
-          type="number"
-          value={!mixed && typeof value === 'number' ? value : ''}
-          placeholder={mixed ? '(複数の値)' : undefined}
+        <NumberInput
+          value={typeof value === 'number' ? value : undefined}
+          mixed={mixed}
           min={field.min}
           max={field.max}
           step={field.step}
           disabled={disabled}
-          title={disabled ? disabledTitle : undefined}
-          onFocus={(e) => e.currentTarget.select()}
-          onChange={(e) => {
-            const n = Number(e.target.value);
-            if (!Number.isNaN(n)) onChange(n);
-          }}
+          disabledTitle={disabledTitle}
+          onCommit={onChange}
         />
       );
     case 'text':
@@ -270,14 +267,11 @@ function FieldInput({
       );
     case 'color':
       return (
-        <span className={styles.colorMixedWrap}>
-          <input
-            type="color"
-            value={typeof value === 'string' ? value : '#000000'}
-            onChange={(e) => onChange(e.target.value)}
-          />
-          {mixed && <span className={styles.mixedHint}>(複数の値)</span>}
-        </span>
+        <ColorField
+          value={typeof value === 'string' ? value : '#000000'}
+          mixed={mixed}
+          onChange={onChange}
+        />
       );
     case 'boolean':
       return <BooleanFieldInput checked={value === true} indeterminate={mixed} onChange={onChange} />;
@@ -416,16 +410,7 @@ export function PropertyPanel() {
       {rotatable && (
         <label className={styles.field}>
           <span className={styles.label}>回転角 (°)</span>
-          <input
-            type="number"
-            step={1}
-            value={displayAngle}
-            onFocus={(e) => e.currentTarget.select()}
-            onChange={(e) => {
-              const n = Number(e.target.value);
-              if (!Number.isNaN(n)) setRotation(n);
-            }}
-          />
+          <NumberInput value={displayAngle} step={1} onCommit={setRotation} />
         </label>
       )}
       {plugin.propertySchema.map((field) => (

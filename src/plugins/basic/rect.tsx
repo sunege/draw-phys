@@ -13,7 +13,8 @@ import {
   type FillPattern,
   type PatternSize,
 } from './fillPattern';
-import { dashArray, lineStyleField, segmentFromEndpoints, type LineStyle } from './lineUtils';
+import { lineStyleFieldExtended, segmentFromEndpoints, type LineStyle } from './lineUtils';
+import { StyledStroke } from './StyledStroke';
 
 interface RectProps {
   width: number;
@@ -72,7 +73,7 @@ export const rectPlugin: PhysicsObjectPlugin<RectProps> = {
     fillOpacityField,
     { key: 'stroke', label: '線色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0, step: 0.5 },
-    lineStyleField,
+    lineStyleFieldExtended,
     fillPatternField,
     patternSizeField,
     ...centerFields,
@@ -80,17 +81,21 @@ export const rectPlugin: PhysicsObjectPlugin<RectProps> = {
   Renderer: ({ props }) => (
     <g>
       <PatternDefs props={props} />
-      <rect
-        x={-props.width / 2}
-        y={-props.height / 2}
-        width={props.width}
-        height={props.height}
-        fill={resolveFill(props)}
-        fillOpacity={resolveFillOpacity(props)}
-        stroke={props.stroke}
-        strokeWidth={props.strokeWidth}
-        strokeDasharray={dashArray(props.lineStyle, props.strokeWidth)}
-      />
+      <StyledStroke
+        lineStyle={props.lineStyle}
+        bounds={{ x: -props.width / 2, y: -props.height / 2, width: props.width, height: props.height }}
+      >
+        <rect
+          x={-props.width / 2}
+          y={-props.height / 2}
+          width={props.width}
+          height={props.height}
+          fill={resolveFill(props)}
+          fillOpacity={resolveFillOpacity(props)}
+          stroke={props.stroke}
+          strokeWidth={props.strokeWidth}
+        />
+      </StyledStroke>
       {props.showCenter && (
         <CenterMark color={props.stroke} style={props.centerStyle} size={props.centerSize} />
       )}

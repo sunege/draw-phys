@@ -2,16 +2,16 @@ import { localToWorld } from '../../core/geometry';
 import type { PhysicsObjectPlugin, TrimPiece } from '../../core/plugin';
 import {
   applyTangent,
-  dashArray,
   dragTangentEndpoint,
   hitStrokeWidth,
   lineFromDrag,
-  lineStyleField,
+  lineStyleFieldExtended,
   segmentEndpoints,
   segmentFromEndpoints,
   tangentAnchorPoint,
   type LineStyle,
 } from './lineUtils';
+import { StyledStroke } from './StyledStroke';
 
 interface LineProps {
   length: number;
@@ -52,7 +52,7 @@ export const linePlugin: PhysicsObjectPlugin<LineProps> = {
     { key: 'length', label: '長さ', type: 'number', min: 1, step: 10 },
     { key: 'stroke', label: '線色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0.5, step: 0.5 },
-    lineStyleField,
+    lineStyleFieldExtended,
     { key: 'lengthLocked', label: '長さ固定', type: 'boolean' },
     { key: 'angleLocked', label: '角度固定', type: 'boolean' },
   ],
@@ -60,15 +60,19 @@ export const linePlugin: PhysicsObjectPlugin<LineProps> = {
     const half = props.length / 2;
     return (
       <g>
-        <line
-          x1={-half}
-          y1={0}
-          x2={half}
-          y2={0}
-          stroke={props.stroke}
-          strokeWidth={props.strokeWidth}
-          strokeDasharray={dashArray(props.lineStyle, props.strokeWidth)}
-        />
+        <StyledStroke
+          lineStyle={props.lineStyle}
+          bounds={{ x: -half, y: 0, width: props.length, height: 0 }}
+        >
+          <line
+            x1={-half}
+            y1={0}
+            x2={half}
+            y2={0}
+            stroke={props.stroke}
+            strokeWidth={props.strokeWidth}
+          />
+        </StyledStroke>
         <line
           x1={-half}
           y1={0}

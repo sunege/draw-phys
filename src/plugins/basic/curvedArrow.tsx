@@ -10,7 +10,8 @@ import {
   endAngleOf,
 } from './curvedArrowMath';
 import { ellipseParamAngle, ellipsePointAt } from './ellipseMath';
-import { dashArray, hitStrokeWidth, lineStyleField, type LineStyle } from './lineUtils';
+import { hitStrokeWidth, lineStyleFieldExtended, type LineStyle } from './lineUtils';
+import { StyledStroke } from './StyledStroke';
 
 interface CurvedArrowProps {
   radiusX: number;
@@ -65,7 +66,7 @@ export const curvedArrowPlugin: PhysicsObjectPlugin<CurvedArrowProps> = {
     { key: 'ccw', label: '反時計回り', type: 'boolean' },
     { key: 'stroke', label: '線色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0.5, step: 0.5 },
-    lineStyleField,
+    lineStyleFieldExtended,
     { key: 'headSize', label: '矢先サイズ', type: 'number', min: 2, step: 1 },
     { key: 'doubleHead', label: '両端矢印', type: 'boolean' },
   ],
@@ -73,14 +74,18 @@ export const curvedArrowPlugin: PhysicsObjectPlugin<CurvedArrowProps> = {
     const { arc, heads } = curvedArrowPaths(props, props.headSize, props.doubleHead);
     return (
       <g>
-        <path
-          d={arc}
-          fill="none"
-          stroke={props.stroke}
-          strokeWidth={props.strokeWidth}
-          strokeLinecap="round"
-          strokeDasharray={dashArray(props.lineStyle, props.strokeWidth)}
-        />
+        <StyledStroke
+          lineStyle={props.lineStyle}
+          bounds={curvedArrowBounds(props, props.headSize, props.strokeWidth)}
+        >
+          <path
+            d={arc}
+            fill="none"
+            stroke={props.stroke}
+            strokeWidth={props.strokeWidth}
+            strokeLinecap="round"
+          />
+        </StyledStroke>
         {heads.map((points, i) => (
           <polygon key={i} points={points} fill={props.stroke} />
         ))}

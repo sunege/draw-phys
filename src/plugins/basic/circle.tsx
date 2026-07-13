@@ -12,7 +12,8 @@ import {
   type FillPattern,
   type PatternSize,
 } from './fillPattern';
-import { dashArray, lineStyleField, type LineStyle } from './lineUtils';
+import { lineStyleFieldExtended, type LineStyle } from './lineUtils';
+import { StyledStroke } from './StyledStroke';
 
 interface CircleProps {
   radius: number;
@@ -56,7 +57,7 @@ export const circlePlugin: PhysicsObjectPlugin<CircleProps> = {
     fillOpacityField,
     { key: 'stroke', label: '線色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0, step: 0.5 },
-    lineStyleField,
+    lineStyleFieldExtended,
     fillPatternField,
     patternSizeField,
     ...centerFields,
@@ -64,14 +65,18 @@ export const circlePlugin: PhysicsObjectPlugin<CircleProps> = {
   Renderer: ({ props }) => (
     <g>
       <PatternDefs props={props} />
-      <circle
-        r={props.radius}
-        fill={resolveFill(props)}
-        fillOpacity={resolveFillOpacity(props)}
-        stroke={props.stroke}
-        strokeWidth={props.strokeWidth}
-        strokeDasharray={dashArray(props.lineStyle, props.strokeWidth)}
-      />
+      <StyledStroke
+        lineStyle={props.lineStyle}
+        bounds={{ x: -props.radius, y: -props.radius, width: props.radius * 2, height: props.radius * 2 }}
+      >
+        <circle
+          r={props.radius}
+          fill={resolveFill(props)}
+          fillOpacity={resolveFillOpacity(props)}
+          stroke={props.stroke}
+          strokeWidth={props.strokeWidth}
+        />
+      </StyledStroke>
       {props.showCenter && (
         <CenterMark color={props.stroke} style={props.centerStyle} size={props.centerSize} />
       )}

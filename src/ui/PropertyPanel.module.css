@@ -66,28 +66,8 @@
   font-family: inherit;
 }
 
-.field input[type='color'] {
-  width: 40px;
-  height: 24px;
-  padding: 0;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
 .multiFields {
   margin-bottom: 4px;
-}
-
-.colorMixedWrap {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.mixedHint {
-  font-size: 11px;
-  color: #9ca3af;
 }
 
 .actions {

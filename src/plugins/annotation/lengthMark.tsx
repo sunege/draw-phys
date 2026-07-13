@@ -15,8 +15,10 @@ import { lengthMarkFromResolved } from './lengthMarkMath';
 
 interface LengthMarkProps extends LabelDecoProps {
   length: number;
-  /** extension: 両端に垂直な補助線 / arc: 両端から弧が飛び出す */
+  /** extension: 両端に垂直な補助線+矢印 / arc: 中央を切った扁平楕円の両端弧(算数の長さ記号) */
   style: 'extension' | 'arc';
+  /** arc スタイルで弧を描く向きを反転する(既定 +y=下 → -y=上) */
+  arcFlip: boolean;
   labelMode: LabelMode;
   latex: string;
   /** ラベルの軸からの距離 */
@@ -52,13 +54,40 @@ function markContent(props: LengthMarkProps): LabelContent {
   };
 }
 
-function endCap(x: number, style: 'extension' | 'arc', cap: number, dir: 1 | -1): string {
-  if (style === 'arc') {
-    // 端から外側へ膨らむ小さな弧
-    return `M ${x} ${-cap} A ${cap * 0.8} ${cap} 0 0 ${dir === 1 ? 1 : 0} ${x} ${cap}`;
-  }
-  // 垂直な補助線
+/** extension スタイルの端キャップ(端点に立てる垂直な補助線) */
+function endCap(x: number, cap: number): string {
   return `M ${x} ${-cap} L ${x} ${cap}`;
+}
+
+/** arc スタイルの楕円短半径は capSize の何倍か */
+const ARC_MINOR_SCALE = 2;
+
+/**
+ * arc スタイルの端キャップ。
+ * 線分全長を長径(端点=頂点)とする扁平楕円を中央で切り、両端に残る楕円弧だけを描く
+ * (小中学校の算数で線分の長さを示す記号)。矢印・寸法線は無し。
+ * 短半径は capSize の {@link ARC_MINOR_SCALE} 倍で、短軸の片側だけを描く。
+ * @param half 線分の半分(=楕円の長半径, 頂点は ±half)
+ * @param cap  楕円の短半径の基準値(実際の高さは ARC_MINOR_SCALE 倍)
+ * @param dir  -1=左端(頂点 -half) / +1=右端(頂点 +half)
+ * @param flip true で描画側を反転(+y=下 → -y=上)
+ */
+function arcCap(half: number, cap: number, dir: 1 | -1, flip: boolean): string {
+  // 頂点から中央側へ 70° ぶん(短軸の頂点=90°の手前)まで回し、楕円の底へ回り込ませて
+  // 膨らみを出す。残り 20° ぶん(中央 x=±half·cos70°)は切ってラベル用の隙間にする。
+  const phi = (70 * Math.PI) / 180;
+  const from = dir === 1 ? 0 : Math.PI; // 頂点(端点 ±half)
+  const to = dir === 1 ? phi : Math.PI - phi; // 中央側へ短軸の片側方向にだけ開く
+  const b = cap * ARC_MINOR_SCALE * (flip ? -1 : 1);
+  const steps = 16;
+  let d = '';
+  for (let i = 0; i <= steps; i++) {
+    const th = from + ((to - from) * i) / steps;
+    const x = half * Math.cos(th);
+    const y = b * Math.sin(th);
+    d += `${i === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)} `;
+  }
+  return d.trim();
 }
 
 export const lengthMarkPlugin: PhysicsObjectPlugin<LengthMarkProps> = {
@@ -76,6 +105,7 @@ export const lengthMarkPlugin: PhysicsObjectPlugin<LengthMarkProps> = {
   defaultProps: {
     length: 100,
     style: 'extension',
+    arcFlip: false,
     labelMode: 'value',
     latex: 'L',
     offset: 16,
@@ -98,9 +128,10 @@ export const lengthMarkPlugin: PhysicsObjectPlugin<LengthMarkProps> = {
       type: 'select',
       options: [
         { value: 'extension', label: '補助線+矢印' },
-        { value: 'arc', label: '弧+矢印' },
+        { value: 'arc', label: '弧' },
       ],
     },
+    { key: 'arcFlip', label: '弧の向きを反転', type: 'boolean' },
     {
       key: 'labelMode',
       label: 'ラベル',
@@ -161,11 +192,21 @@ export const lengthMarkPlugin: PhysicsObjectPlugin<LengthMarkProps> = {
             />
           </>
         )}
-        <path d={endCap(-half, style, capSize, -1)} fill="none" stroke={stroke} strokeWidth={strokeWidth} />
-        <path d={endCap(half, style, capSize, 1)} fill="none" stroke={stroke} strokeWidth={strokeWidth} />
-        <line x1={-half} y1={0} x2={half} y2={0} stroke={stroke} strokeWidth={strokeWidth} />
-        <path d={arrowHead(-half, -1, arrowSize)} fill={stroke} />
-        <path d={arrowHead(half, 1, arrowSize)} fill={stroke} />
+        {style === 'arc' ? (
+          <>
+            {/* 中央を切った扁平楕円の両端弧のみ(寸法線・矢印なし) */}
+            <path d={arcCap(half, capSize, -1, props.arcFlip)} fill="none" stroke={stroke} strokeWidth={strokeWidth} />
+            <path d={arcCap(half, capSize, 1, props.arcFlip)} fill="none" stroke={stroke} strokeWidth={strokeWidth} />
+          </>
+        ) : (
+          <>
+            <path d={endCap(-half, capSize)} fill="none" stroke={stroke} strokeWidth={strokeWidth} />
+            <path d={endCap(half, capSize)} fill="none" stroke={stroke} strokeWidth={strokeWidth} />
+            <line x1={-half} y1={0} x2={half} y2={0} stroke={stroke} strokeWidth={strokeWidth} />
+            <path d={arrowHead(-half, -1, arrowSize)} fill={stroke} />
+            <path d={arrowHead(half, 1, arrowSize)} fill={stroke} />
+          </>
+        )}
         <MarkLabel
           x={0}
           y={-props.offset}
@@ -187,8 +228,19 @@ export const lengthMarkPlugin: PhysicsObjectPlugin<LengthMarkProps> = {
   getBounds: (props) => {
     const half = props.length / 2;
     const po = props.perpOffset ?? 0;
-    const yTop = Math.min(-props.capSize, -po, -(props.offset + props.fontSize));
-    const yBot = Math.max(props.capSize, -po);
+    // 描画部の上下端(局所y)。arc は短軸 ARC_MINOR_SCALE 倍・片側のみ(反転で上下切替)
+    let markTop: number;
+    let markBot: number;
+    if (props.style === 'arc') {
+      const reach = props.capSize * ARC_MINOR_SCALE;
+      markTop = props.arcFlip ? -reach : 0;
+      markBot = props.arcFlip ? 0 : reach;
+    } else {
+      markTop = -props.capSize;
+      markBot = props.capSize;
+    }
+    const yTop = Math.min(markTop, -po, -(props.offset + props.fontSize));
+    const yBot = Math.max(markBot, -po);
     const shape = { x: -half - 2, y: yTop, width: props.length + 4, height: yBot - yTop };
     const label = labelLocalBounds(
       { x: 0, y: -props.offset },

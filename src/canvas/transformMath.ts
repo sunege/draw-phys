@@ -43,7 +43,9 @@ function handleLocal(bounds: Rect, sx: number, sy: number): Point {
 
 /**
  * スケールハンドルのドラッグから新しいtransformを計算する。
- * ドラッグ中のハンドルの対角(反対側の点)をワールド座標で固定したまま拡大縮小する。
+ * 既定ではドラッグ中のハンドルの対角(反対側の点)をワールド座標で固定したまま拡大縮小する。
+ * fromCenter=true のときはバウンディングボックスの中心を固定して拡大縮小する
+ * (円などの中心を合わせたまま拡大したい用途。Ctrlドラッグ)。
  */
 export function computeScaleDrag(
   before: Transform,
@@ -51,11 +53,12 @@ export function computeScaleDrag(
   handle: HandleDir,
   worldPoint: Point,
   uniform: boolean,
+  fromCenter = false,
 ): Transform {
   const { sx, sy } = handle;
   const theta = before.rotation;
-  // アンカー(固定点): ドラッグ軸は反対側、非ドラッグ軸は中央
-  const anchor = handleLocal(bounds, -sx, -sy);
+  // アンカー(固定点): 既定はドラッグ軸=反対側/非ドラッグ軸=中央。fromCenterでは常に中央。
+  const anchor = fromCenter ? handleLocal(bounds, 0, 0) : handleLocal(bounds, -sx, -sy);
   const target = handleLocal(bounds, sx, sy);
 
   const anchorWorld = {
@@ -100,8 +103,9 @@ export interface ScalePropsResult {
 
 /**
  * スケールハンドルのドラッグを、transformのscaleではなくpropsのサイズへ反映する。
- * 対角のアンカーをワールド座標で固定したまま、プラグインの applyScale で
+ * 既定では対角のアンカーをワールド座標で固定したまま、プラグインの applyScale で
  * サイズprops(幅・半径・フォントサイズ等)を更新する。transformのscaleは常に1。
+ * fromCenter=true のときはバウンディングボックスの中心を固定して拡大縮小する。
  * before.scaleX/Y は 1 であることを前提とする(呼び出し側で正規化する)。
  */
 export function computeScaleToProps(
@@ -111,11 +115,12 @@ export function computeScaleToProps(
   handle: HandleDir,
   worldPoint: Point,
   uniform: boolean,
+  fromCenter = false,
 ): ScalePropsResult {
   const { sx, sy } = handle;
   const theta = before.rotation;
   const b0 = plugin.getBounds(beforeProps);
-  const anchor0 = handleLocal(b0, -sx, -sy);
+  const anchor0 = fromCenter ? handleLocal(b0, 0, 0) : handleLocal(b0, -sx, -sy);
   const target0 = handleLocal(b0, sx, sy);
 
   const anchorVec = rotateVec(anchor0, theta);
@@ -135,7 +140,7 @@ export function computeScaleToProps(
 
   const props = plugin.applyScale!(beforeProps, fx, fy) as Record<string, unknown>;
   const b1 = plugin.getBounds(props);
-  const anchor1 = rotateVec(handleLocal(b1, -sx, -sy), theta);
+  const anchor1 = rotateVec(fromCenter ? handleLocal(b1, 0, 0) : handleLocal(b1, -sx, -sy), theta);
   return {
     props,
     transform: {

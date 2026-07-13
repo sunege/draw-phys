@@ -1,0 +1,97 @@
+.wrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.swatch {
+  width: 40px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* 色が食い違う複数選択。市松模様で「未確定」を示す */
+.swatch[data-mixed='true'] {
+  background: repeating-conic-gradient(#e5e7eb 0% 25%, #ffffff 0% 50%) 0 / 12px 12px;
+}
+
+.popover {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  width: 168px;
+  padding: 10px;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+}
+
+.presets {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.preset {
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.preset[data-selected='true'] {
+  outline: 2px solid #1971c2;
+  outline-offset: 1px;
+}
+
+.customRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: #374151;
+}
+
+.customRow input[type='color'] {
+  width: 28px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.hexInput {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+  font-size: 11px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+}
+
+.close {
+  display: block;
+  width: 100%;
+  padding: 4px;
+  font-size: 12px;
+  color: #374151;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.close:hover {
+  background: #e5e7eb;
+}

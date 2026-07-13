@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { lineFromDrag, segmentEndpoints, segmentFromEndpoints } from '../lineUtils';
+import {
+  dashArray,
+  lineFromDrag,
+  segmentEndpoints,
+  segmentFromEndpoints,
+  wavyFilterId,
+  wavyFilterRegion,
+} from '../lineUtils';
 
 describe('lineFromDrag', () => {
   it('水平ドラッグで中心・長さ・回転0を返す', () => {
@@ -58,5 +65,43 @@ describe('segmentEndpoints', () => {
       { x: -50, y: 0 },
       { x: 50, y: 0 },
     ]);
+  });
+});
+
+describe('dashArray', () => {
+  it('破線・点線は線幅比例のダッシュを返す', () => {
+    expect(dashArray('dashed', 2)).toBe('8 6');
+    expect(dashArray('dotted', 2)).toBe('2 4');
+  });
+
+  it('二重線・手書き線・実線はundefined(dasharrayでは描かない)', () => {
+    expect(dashArray('solid', 2)).toBeUndefined();
+    expect(dashArray('double', 2)).toBeUndefined();
+    expect(dashArray('wavy', 2)).toBeUndefined();
+  });
+});
+
+describe('wavyFilterRegion', () => {
+  it('外接矩形を振幅分だけ広げる', () => {
+    const r = wavyFilterRegion({ x: -50, y: -50, width: 100, height: 100 });
+    // WAVY_PAD=13 → 各辺13広げる
+    expect(r).toEqual({ x: -63, y: -63, width: 126, height: 126 });
+  });
+
+  it('高さ0の水平線でも非退化な領域になる(退化するとフィルタが描画されない)', () => {
+    const r = wavyFilterRegion({ x: -40, y: 0, width: 80, height: 0 });
+    expect(r.height).toBeGreaterThan(0);
+    expect(r.width).toBeGreaterThan(0);
+  });
+});
+
+describe('wavyFilterId', () => {
+  it('同一領域なら同じid(defs共有)', () => {
+    const region = { x: -63, y: -63, width: 126, height: 126 };
+    expect(wavyFilterId(region)).toBe(wavyFilterId(region));
+  });
+
+  it('負値はmでエンコードして有効なidにする', () => {
+    expect(wavyFilterId({ x: -63, y: -63, width: 126, height: 126 })).toBe('wavy-m63_m63_126_126');
   });
 });

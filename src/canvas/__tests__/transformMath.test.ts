@@ -60,6 +60,26 @@ describe('computeScaleDrag', () => {
     const next = computeScaleDrag(before, bounds, { sx: 1, sy: 0 }, { x: -49.9, y: 0 }, false);
     expect(Math.abs(next.scaleX)).toBeGreaterThanOrEqual(0.05);
   });
+
+  it('fromCenterでは右辺を100までドラッグすると中心固定で2倍になる', () => {
+    const before = identityTransform(0, 0);
+    // 中心(0,0)固定・半幅50を100まで → scaleX=2、中心は動かない
+    const next = computeScaleDrag(before, bounds, { sx: 1, sy: 0 }, { x: 100, y: 0 }, false, true);
+    expect(next.scaleX).toBeCloseTo(2);
+    expect(next.scaleY).toBe(1);
+    expect(next.x).toBeCloseTo(0);
+    expect(next.y).toBeCloseTo(0);
+  });
+
+  it('fromCenterのコーナードラッグでも中心が固定される', () => {
+    const before = identityTransform(20, 40);
+    // 右下(local 50,30)を中心(20,40)から見て(120,100)へ → d=(100,60) → 半幅50/半高30基準で2倍
+    const next = computeScaleDrag(before, bounds, { sx: 1, sy: 1 }, { x: 120, y: 100 }, false, true);
+    expect(next.scaleX).toBeCloseTo(2);
+    expect(next.scaleY).toBeCloseTo(2);
+    expect(next.x).toBeCloseTo(20);
+    expect(next.y).toBeCloseTo(40);
+  });
 });
 
 describe('computeScaleToProps', () => {
@@ -97,6 +117,19 @@ describe('computeScaleToProps', () => {
     const res = computeScaleToProps(before, props, boxPlugin, { sx: 1, sy: 0 }, { x: 0, y: 100 }, false);
     expect(res.props.width).toBeCloseTo(150);
     expect(res.transform.scaleX).toBe(1);
+  });
+
+  it('fromCenterでは中心を固定したままサイズpropsが増える', () => {
+    const before = identityTransform(30, 10);
+    const props = { width: 100, height: 60 };
+    // 右辺(local 50)を中心(30,10)から見てx=130へ → d.x=100 → 半幅50基準で幅200
+    const res = computeScaleToProps(before, props, boxPlugin, { sx: 1, sy: 0 }, { x: 130, y: 10 }, false, true);
+    expect(res.props.width).toBeCloseTo(200);
+    expect(res.props.height).toBeCloseTo(60); // 高さ不変
+    expect(res.transform.scaleX).toBe(1);
+    // 中心は動かない
+    expect(res.transform.x).toBeCloseTo(30);
+    expect(res.transform.y).toBeCloseTo(10);
   });
 });
 

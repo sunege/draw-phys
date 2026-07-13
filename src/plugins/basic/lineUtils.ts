@@ -2,16 +2,21 @@ import { angleOfVector, localToWorld } from '../../core/geometry';
 import type { PropertyField, ResolvedRef } from '../../core/plugin';
 import type { Point, Transform } from '../../core/types';
 
-export type LineStyle = 'solid' | 'dashed' | 'dotted';
+export type LineStyle = 'solid' | 'dashed' | 'dotted' | 'double' | 'wavy';
 
-/** 線種→strokeDasharray(実線はundefined)。破線/点線は線幅に比例させる */
+/**
+ * 線種→strokeDasharray(実線はundefined)。破線/点線は線幅に比例させる。
+ * 二重線・手書き線(wavy)はdasharrayでは描けないのでundefined(=実線)を返す。
+ * これらは`<StyledStroke>`が別途特別描画する(dasharray非対応のプラグインへ
+ * 値が漏れても実線に劣化するだけで安全)。
+ */
 export function dashArray(lineStyle: LineStyle | undefined, strokeWidth: number): string | undefined {
   if (lineStyle === 'dashed') return `${strokeWidth * 4} ${strokeWidth * 3}`;
   if (lineStyle === 'dotted') return `${strokeWidth} ${strokeWidth * 2}`;
   return undefined;
 }
 
-/** 線種選択のプロパティスキーマ項目(各プラグイン共通) */
+/** 線種選択のプロパティスキーマ項目(各プラグイン共通・実線/破線/点線) */
 export const lineStyleField: PropertyField = {
   key: 'lineStyle',
   label: '線種',
@@ -22,6 +27,62 @@ export const lineStyleField: PropertyField = {
     { value: 'dotted', label: '点線' },
   ],
 };
+
+/**
+ * 線種選択(拡張)。基本図形のうち線種を持つもの専用に二重線・手書き線を追加する。
+ * (手書き線=内部値'wavy'。フィルタで輪郭を揺らす手描き風。周期性は持たない)
+ * 二重線・手書き線はstrokeDasharrayでは表現できず`<StyledStroke>`が特別描画するため、
+ * その描画に対応した基本図形だけがこの拡張フィールドを使う。回路記号・グラフ・波動など
+ * 他プラグインは従来どおり`lineStyleField`(3択)のまま。
+ */
+export const lineStyleFieldExtended: PropertyField = {
+  key: 'lineStyle',
+  label: '線種',
+  type: 'select',
+  options: [
+    { value: 'solid', label: '実線' },
+    { value: 'dashed', label: '破線' },
+    { value: 'dotted', label: '点線' },
+    { value: 'double', label: '二重線' },
+    { value: 'wavy', label: '手書き線' },
+  ],
+};
+
+/** ローカル外接矩形(手書き線フィルタの適用領域算出に使う) */
+export interface LocalRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * 手書き線(SVGフィルタ)の見た目パラメータ。全図形で共通・固定(線幅非依存)なので、
+ * 円・矩形・直線どれでも一定のゆらぎになる。
+ */
+export const WAVY_FREQUENCY = 0.08; // feTurbulenceのbaseFrequency(大きいほど細かい波・波長≈12px)
+export const WAVY_SCALE = 6; // feDisplacementMapの最大変位≈±WAVY_SCALE/2
+const WAVY_PAD = WAVY_SCALE / 2 + 10;
+
+/**
+ * 手書き線フィルタの適用領域(userSpaceOnUse)。輪郭の外接矩形を振幅分だけ広げる。
+ * 水平/垂直線のように片方が0の矩形でも、パディングで必ず非退化になる
+ * (退化した領域だとフィルタが描画されず線が消えるため)。
+ */
+export function wavyFilterRegion(bounds: LocalRect): LocalRect {
+  return {
+    x: Math.round(bounds.x - WAVY_PAD),
+    y: Math.round(bounds.y - WAVY_PAD),
+    width: Math.round(bounds.width + WAVY_PAD * 2),
+    height: Math.round(bounds.height + WAVY_PAD * 2),
+  };
+}
+
+/** 手書き線フィルタの一意id(同一領域なら共有。書き出しSVG内でも重複しても同一定義で無害) */
+export function wavyFilterId(region: LocalRect): string {
+  const enc = (n: number) => (n < 0 ? `m${-n}` : `${n}`);
+  return `wavy-${enc(region.x)}_${enc(region.y)}_${enc(region.width)}_${enc(region.height)}`;
+}
 
 /** 線分系プラグイン共通: 始点→終点のドラッグから中心・長さ・回転を求める */
 export function lineFromDrag(

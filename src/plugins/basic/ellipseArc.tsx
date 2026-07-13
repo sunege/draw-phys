@@ -16,7 +16,8 @@ import {
   ellipseParamAngle,
   ellipsePointAt,
 } from './ellipseMath';
-import { dashArray, lineStyleField, type LineStyle } from './lineUtils';
+import { lineStyleFieldExtended, type LineStyle } from './lineUtils';
+import { StyledStroke } from './StyledStroke';
 
 interface EllipseArcProps {
   radiusX: number;
@@ -61,30 +62,33 @@ export const ellipseArcPlugin: PhysicsObjectPlugin<EllipseArcProps> = {
     { key: 'endAngle', label: '終了角', type: 'number', min: -180, max: 180, step: 5 },
     { key: 'stroke', label: '線色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0.5, step: 0.5 },
-    lineStyleField,
+    lineStyleFieldExtended,
     ...centerFields,
   ],
   Renderer: ({ props }) => (
     <g>
-      {isFullArc(props.startAngle, props.endAngle) ? (
-        <ellipse
-          rx={props.radiusX}
-          ry={props.radiusY}
-          fill="none"
-          stroke={props.stroke}
-          strokeWidth={props.strokeWidth}
-          strokeDasharray={dashArray(props.lineStyle, props.strokeWidth)}
-        />
-      ) : (
-        <path
-          d={ellipseArcPath(props.radiusX, props.radiusY, props.startAngle, props.endAngle)}
-          fill="none"
-          stroke={props.stroke}
-          strokeWidth={props.strokeWidth}
-          strokeLinecap="round"
-          strokeDasharray={dashArray(props.lineStyle, props.strokeWidth)}
-        />
-      )}
+      <StyledStroke
+        lineStyle={props.lineStyle}
+        bounds={ellipseArcBounds(props.radiusX, props.radiusY, props.startAngle, props.endAngle)}
+      >
+        {isFullArc(props.startAngle, props.endAngle) ? (
+          <ellipse
+            rx={props.radiusX}
+            ry={props.radiusY}
+            fill="none"
+            stroke={props.stroke}
+            strokeWidth={props.strokeWidth}
+          />
+        ) : (
+          <path
+            d={ellipseArcPath(props.radiusX, props.radiusY, props.startAngle, props.endAngle)}
+            fill="none"
+            stroke={props.stroke}
+            strokeWidth={props.strokeWidth}
+            strokeLinecap="round"
+          />
+        )}
+      </StyledStroke>
       {props.showCenter && (
         <CenterMark color={props.stroke} style={props.centerStyle} size={props.centerSize} />
       )}

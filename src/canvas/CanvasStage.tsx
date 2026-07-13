@@ -1896,6 +1896,8 @@ export function CanvasStage() {
         point = snapped.point;
       }
       const uniform = drag.uniform || e.shiftKey;
+      // Ctrl(Mac: Cmd)ドラッグ中はバウンディングボックスの中心を固定して拡大縮小する
+      const fromCenter = e.ctrlKey || e.metaKey;
       if (drag.plugin.applyScale) {
         // 拡大縮小をサイズpropsへ反映する(線幅は変わらず、文字サイズは変わる)
         const next = computeScaleToProps(
@@ -1905,10 +1907,11 @@ export function CanvasStage() {
           drag.handle,
           point,
           uniform,
+          fromCenter,
         );
         doc.setObjectTransient(drag.id, { transform: next.transform, props: next.props });
       } else {
-        const next = computeScaleDrag(drag.before, drag.bounds, drag.handle, point, uniform);
+        const next = computeScaleDrag(drag.before, drag.bounds, drag.handle, point, uniform, fromCenter);
         doc.setTransformsTransient({ [drag.id]: next });
       }
       drag.moved = true;

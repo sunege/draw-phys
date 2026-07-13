@@ -1,16 +1,16 @@
 import type { PhysicsObjectPlugin } from '../../core/plugin';
 import {
   applyTangent,
-  dashArray,
   dragTangentEndpoint,
   hitStrokeWidth,
   lineFromDrag,
-  lineStyleField,
+  lineStyleFieldExtended,
   segmentEndpoints,
   segmentFromEndpoints,
   tangentAnchorPoint,
   type LineStyle,
 } from './lineUtils';
+import { StyledStroke } from './StyledStroke';
 
 interface ArrowProps {
   length: number;
@@ -54,7 +54,7 @@ export const arrowPlugin: PhysicsObjectPlugin<ArrowProps> = {
     { key: 'length', label: '長さ', type: 'number', min: 1, step: 10 },
     { key: 'stroke', label: '色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0.5, step: 0.5 },
-    lineStyleField,
+    lineStyleFieldExtended,
     { key: 'headSize', label: '矢先サイズ', type: 'number', min: 2, step: 1 },
     { key: 'doubleHead', label: '両端矢印', type: 'boolean' },
   ],
@@ -65,15 +65,19 @@ export const arrowPlugin: PhysicsObjectPlugin<ArrowProps> = {
     const startX = props.doubleHead ? -half + props.headSize * 0.8 : -half;
     return (
       <g>
-        <line
-          x1={startX}
-          y1={0}
-          x2={endX}
-          y2={0}
-          stroke={props.stroke}
-          strokeWidth={props.strokeWidth}
-          strokeDasharray={dashArray(props.lineStyle, props.strokeWidth)}
-        />
+        <StyledStroke
+          lineStyle={props.lineStyle}
+          bounds={{ x: -half, y: 0, width: props.length, height: 0 }}
+        >
+          <line
+            x1={startX}
+            y1={0}
+            x2={endX}
+            y2={0}
+            stroke={props.stroke}
+            strokeWidth={props.strokeWidth}
+          />
+        </StyledStroke>
         <polygon points={headPoints(half, 1, props.headSize)} fill={props.stroke} />
         {props.doubleHead && (
           <polygon points={headPoints(-half, -1, props.headSize)} fill={props.stroke} />

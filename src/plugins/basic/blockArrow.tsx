@@ -12,15 +12,15 @@ import {
 import { PatternDefs } from './PatternDefs';
 import {
   applyTangent,
-  dashArray,
   dragTangentEndpoint,
   lineFromDrag,
-  lineStyleField,
+  lineStyleFieldExtended,
   segmentEndpoints,
   segmentFromEndpoints,
   tangentAnchorPoint,
   type LineStyle,
 } from './lineUtils';
+import { StyledStroke } from './StyledStroke';
 
 interface BlockArrowProps {
   length: number;
@@ -80,24 +80,31 @@ export const blockArrowPlugin: PhysicsObjectPlugin<BlockArrowProps> = {
     fillOpacityField,
     { key: 'stroke', label: '線色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0.5, step: 0.5 },
-    lineStyleField,
+    lineStyleFieldExtended,
     fillPatternField,
     patternSizeField,
   ],
-  Renderer: ({ props }) => (
-    <g>
-      <PatternDefs props={props} />
-      <polygon
-        points={blockArrowPointsAttr(props)}
-        fill={resolveFill(props)}
-        fillOpacity={resolveFillOpacity(props)}
-        stroke={props.stroke}
-        strokeWidth={props.strokeWidth}
-        strokeDasharray={dashArray(props.lineStyle, props.strokeWidth)}
-        strokeLinejoin="round"
-      />
-    </g>
-  ),
+  Renderer: ({ props }) => {
+    const h = Math.max(blockArrowHeight(props), props.strokeWidth);
+    return (
+      <g>
+        <PatternDefs props={props} />
+        <StyledStroke
+          lineStyle={props.lineStyle}
+          bounds={{ x: -props.length / 2, y: -h / 2, width: props.length, height: h }}
+        >
+          <polygon
+            points={blockArrowPointsAttr(props)}
+            fill={resolveFill(props)}
+            fillOpacity={resolveFillOpacity(props)}
+            stroke={props.stroke}
+            strokeWidth={props.strokeWidth}
+            strokeLinejoin="round"
+          />
+        </StyledStroke>
+      </g>
+    );
+  },
   getBounds: (props) => {
     const h = Math.max(blockArrowHeight(props), props.strokeWidth);
     return { x: -props.length / 2, y: -h / 2, width: props.length, height: h };

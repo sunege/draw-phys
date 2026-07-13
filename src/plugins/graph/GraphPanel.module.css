@@ -43,15 +43,6 @@
   font-family: inherit;
 }
 
-.field input[type='color'] {
-  width: 40px;
-  height: 22px;
-  padding: 0;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
 /* 2つの数値を横並びにする(位置補正 dx/dy など) */
 .pair {
   display: flex;

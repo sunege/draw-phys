@@ -12,7 +12,8 @@ import {
   type FillPattern,
   type PatternSize,
 } from './fillPattern';
-import { dashArray, lineStyleField, type LineStyle } from './lineUtils';
+import { lineStyleFieldExtended, type LineStyle } from './lineUtils';
+import { StyledStroke } from './StyledStroke';
 
 interface EllipseProps {
   radiusX: number;
@@ -59,7 +60,7 @@ export const ellipsePlugin: PhysicsObjectPlugin<EllipseProps> = {
     fillOpacityField,
     { key: 'stroke', label: '線色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0, step: 0.5 },
-    lineStyleField,
+    lineStyleFieldExtended,
     fillPatternField,
     patternSizeField,
     ...centerFields,
@@ -67,15 +68,19 @@ export const ellipsePlugin: PhysicsObjectPlugin<EllipseProps> = {
   Renderer: ({ props }) => (
     <g>
       <PatternDefs props={props} />
-      <ellipse
-        rx={props.radiusX}
-        ry={props.radiusY}
-        fill={resolveFill(props)}
-        fillOpacity={resolveFillOpacity(props)}
-        stroke={props.stroke}
-        strokeWidth={props.strokeWidth}
-        strokeDasharray={dashArray(props.lineStyle, props.strokeWidth)}
-      />
+      <StyledStroke
+        lineStyle={props.lineStyle}
+        bounds={{ x: -props.radiusX, y: -props.radiusY, width: props.radiusX * 2, height: props.radiusY * 2 }}
+      >
+        <ellipse
+          rx={props.radiusX}
+          ry={props.radiusY}
+          fill={resolveFill(props)}
+          fillOpacity={resolveFillOpacity(props)}
+          stroke={props.stroke}
+          strokeWidth={props.strokeWidth}
+        />
+      </StyledStroke>
       {props.showCenter && (
         <CenterMark color={props.stroke} style={props.centerStyle} size={props.centerSize} />
       )}
