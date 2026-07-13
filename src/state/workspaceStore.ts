@@ -93,8 +93,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         parentId,
         updatedAt: Date.now(),
       };
-      await requireAdapter(get().adapter).writeDocument(node.id, EMPTY_DOC);
+      // 先にノードを作成してから中身を書く(Driveはノード=ファイル実体のため順序が重要)
       await putNode(node);
+      await requireAdapter(get().adapter).writeDocument(node.id, EMPTY_DOC);
       return node.id;
     },
 
@@ -143,11 +144,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           name: rename ? `${node.name} のコピー` : node.name,
           updatedAt: Date.now(),
         };
+        // 先にノードを作成してから中身を書く(createFileと同じ理由)
+        await putNode(clone);
         if (node.type === 'file') {
           const doc = await adapter.readDocument(node.id);
           await adapter.writeDocument(clone.id, doc ?? EMPTY_DOC);
         }
-        await putNode(clone);
         if (node.type === 'folder') {
           for (const child of Object.values(get().nodes)) {
             if (child.parentId === node.id) await cloneRecursive(child, clone.id, false);

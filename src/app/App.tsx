@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { HashRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import { IndexedDbAdapter } from '../persistence/indexedDbAdapter';
+import { useAuthStore } from '../state/authStore';
 import { useWorkspaceStore } from '../state/workspaceStore';
 import { EditorPage } from './EditorPage';
 
@@ -48,7 +48,8 @@ export function App() {
 
   useEffect(() => {
     if (!useWorkspaceStore.getState().loaded) {
-      void useWorkspaceStore.getState().init(new IndexedDbAdapter());
+      // 前回のデータ元(ローカル/Drive)を復元。Driveはサイレント、失敗時はローカルへ
+      void useAuthStore.getState().restore();
     }
   }, []);
 

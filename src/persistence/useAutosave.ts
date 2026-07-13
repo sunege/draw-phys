@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { serializeDocument } from '../core/document';
 import { useDocumentStore } from '../state/documentStore';
+import { useToastStore } from '../state/toastStore';
 import { useWorkspaceStore } from '../state/workspaceStore';
 
 const AUTOSAVE_DELAY_MS = 800;
@@ -11,15 +12,26 @@ export function useAutosave(fileId: string | undefined): void {
     if (!fileId) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let dirty = false;
+    // 連続失敗でトーストを出し続けないよう、直近が失敗中かを覚えておく
+    let errored = false;
 
     const save = () => {
       dirty = false;
       const adapter = useWorkspaceStore.getState().adapter;
       if (!adapter) return;
-      void adapter.writeDocument(
-        fileId,
-        serializeDocument(useDocumentStore.getState().objects),
-      );
+      void adapter
+        .writeDocument(fileId, serializeDocument(useDocumentStore.getState().objects))
+        .then(() => {
+          errored = false;
+        })
+        .catch(() => {
+          if (!errored) {
+            errored = true;
+            useToastStore
+              .getState()
+              .showToast('保存に失敗しました（接続やログイン状態を確認してください）', 'error');
+          }
+        });
     };
 
     const unsubscribe = useDocumentStore.subscribe((state, prev) => {

@@ -6,6 +6,7 @@ import { buildWorkspaceZip, isSceneDocument, parseWorkspaceZip } from '../persis
 import { useLayoutStore } from '../state/layoutStore';
 import { useWorkspaceStore } from '../state/workspaceStore';
 import styles from './WorkspacePanel.module.css';
+import { WorkspaceSourceSelector } from './WorkspaceSourceSelector';
 
 function FolderIcon() {
   return (
@@ -254,6 +255,7 @@ export function WorkspacePanel() {
     >
       <div className={styles.toolbar}>
         <span className={styles.heading}>ワークスペース</span>
+        <WorkspaceSourceSelector />
         <button type="button" onClick={onNewFile} title="新規ファイル">
           +ファイル
         </button>

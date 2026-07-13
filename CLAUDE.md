@@ -68,7 +68,7 @@ npm test       # vitest run
 
 **書き出し**(`src/export/exporter.ts`): 各`Renderer`を`renderToStaticMarkup`で自己完結SVG化→PNG/JPEG/PDFへラスタライズ。非visible・constructionは除外。**KaTeX foreignObjectはcanvas汚染回避のためdata URL+`crossOrigin`**(blob URL不可)、KaTeX CSSの非data-URIフォント参照は除去必須(`exportStyles()`)。PDFは`exportPdfPages`(複数ページ=`addPage`)、`physicalMm`で実寸(mm)/図の縦横比(pt)を切替、canvas上限(≈16.7Mpx)は`cappedScale`で自動抑制。**印刷**(`src/export/print.ts`)=各用紙をPNG化→隠しiframeに`@page{size:mm}`で並べ`print()`。**クリップボードはPNGのみ**(SVGはWord/PowerPointがKaTeXを誤描画)。**ページ移動**=MenuBarのページ選択→`viewportStore.frameWorldRect`で用紙を画面中央へ。
 
-**永続化**: `src/persistence/`(IndexedDB)。`{pluginId,version,props}`+共通エンベロープ(transform/zIndex/locked/visible/groupId/construction/refs)。`version`不一致は`migrate()`、未知`pluginId`は読み飛ばす。個別JSON/ZIP両対応。
+**永続化**: `src/persistence/`(IndexedDB)。`{pluginId,version,props}`+共通エンベロープ(transform/zIndex/locked/visible/groupId/construction/refs)。`version`不一致は`migrate()`、未知`pluginId`は読み飛ばす。個別JSON/ZIP両対応。**保存先は`StorageAdapter`(`types.ts`)で抽象化**され、ローカル(`IndexedDbAdapter`)とGoogle Drive(`src/integrations/googleDrive/`)を切替可。`authStore`がソース(local/drive:email)とアカウントを管理し`workspaceStore.init(adapter)`を差し替え、`WorkspaceSourceSelector`で切替(切替時は`/`へ)。Drive認証はGIS token flow(`gis.ts`)＝クライアントシークレット不要・トークン非保存(メモリのみ)・`prompt:''`でサイレント再取得しログイン保持、localStorageは非機密ヒント(email/最終ソース)のみ。`GoogleDriveAdapter`は各ノードを`appDataFolder`直下の1ファイルに平置き(階層は`appProperties`のnodeId/parentId/nodeType、表示名はDrive`name`、node.idはUUID維持でDrive実idと`idMap`対応)。**ノード=ファイル実体のため`createFile`/`copy`は`putNode`→`writeDocument`順が必須**(`writeDocument`は実体が無いとno-op)。スコープは`drive.appdata`(非センシティブ=重い審査不要)。
 
 ## Conventions / gotchas
 
