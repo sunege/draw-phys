@@ -1,9 +1,11 @@
 import { saveAs } from 'file-saver';
 import { useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import type { SceneDocumentJson } from '../core/document';
 import type { StorageAdapter, WorkspaceNode } from '../persistence/types';
 import { buildWorkspaceZip, isSceneDocument, parseWorkspaceZip } from '../persistence/zip';
 import { useLayoutStore } from '../state/layoutStore';
+import { useToastStore } from '../state/toastStore';
 import { useWorkspaceStore } from '../state/workspaceStore';
 import styles from './WorkspacePanel.module.css';
 import { WorkspaceSourceSelector } from './WorkspaceSourceSelector';
@@ -23,6 +25,12 @@ function FileIcon() {
       <path d="M14 3 L14 7 H18" fill="none" stroke="#8a919c" strokeWidth="1.4" />
     </svg>
   );
+}
+
+/** インポート結果。imported=成功件数、failed=中身を書けなかったファイル名 */
+interface ImportResult {
+  imported: number;
+  failed: string[];
 }
 
 interface RowProps {
@@ -180,13 +188,30 @@ export function WorkspacePanel() {
 
   const requireAdapterSafe = (): StorageAdapter | null => useWorkspaceStore.getState().adapter;
 
-  // ZIPを展開し、ZIP名のフォルダ配下へ復元する(既存データとの衝突を避ける)。復元件数を返す
-  const importZip = async (file: File, adapter: StorageAdapter): Promise<number> => {
+  // 中身を書き込む。失敗したら空ファイルを残さず取り消して false を返す
+  const writeOrRollback = async (
+    adapter: StorageAdapter,
+    fileId: string,
+    doc: SceneDocumentJson,
+  ): Promise<boolean> => {
+    try {
+      await adapter.writeDocument(fileId, doc);
+      return true;
+    } catch {
+      // 中身が書けなかったファイルは空のまま残さない(白紙ファイルを作らない)
+      await store.remove(fileId).catch(() => {});
+      return false;
+    }
+  };
+
+  // ZIPを展開し、ZIP名のフォルダ配下へ復元する(既存データとの衝突を避ける)
+  const importZip = async (file: File, adapter: StorageAdapter): Promise<ImportResult> => {
     const entries = await parseWorkspaceZip(file);
-    if (entries.length === 0) return 0;
+    if (entries.length === 0) return { imported: 0, failed: [] };
     const rootName = file.name.replace(/\.zip$/i, '') || 'インポート';
     const rootId = await store.createFolder(null, rootName);
     const folderIds = new Map<string, string>();
+    const result: ImportResult = { imported: 0, failed: [] };
     for (const entry of entries) {
       let parentId = rootId;
       let pathKey = '';
@@ -200,24 +225,25 @@ export function WorkspacePanel() {
         parentId = folderId;
       }
       const fileId = await store.createFile(parentId, entry.name);
-      await adapter.writeDocument(fileId, entry.doc);
+      if (await writeOrRollback(adapter, fileId, entry.doc)) result.imported += 1;
+      else result.failed.push(entry.name);
     }
-    return entries.length;
+    return result;
   };
 
-  // 単一の図JSONをルート直下へ復元する。妥当なドキュメントでなければ0を返す
-  const importJson = async (file: File, adapter: StorageAdapter): Promise<number> => {
+  // 単一の図JSONをルート直下へ復元する。妥当なドキュメントでなければ何もしない
+  const importJson = async (file: File, adapter: StorageAdapter): Promise<ImportResult> => {
     let parsed: unknown;
     try {
       parsed = JSON.parse(await file.text());
     } catch {
-      return 0;
+      return { imported: 0, failed: [] };
     }
-    if (!isSceneDocument(parsed)) return 0;
+    if (!isSceneDocument(parsed)) return { imported: 0, failed: [] };
     const name = file.name.replace(/\.json$/i, '') || 'インポート';
     const fileId = await store.createFile(null, name);
-    await adapter.writeDocument(fileId, parsed);
-    return 1;
+    if (await writeOrRollback(adapter, fileId, parsed)) return { imported: 1, failed: [] };
+    return { imported: 0, failed: [name] };
   };
 
   const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -226,18 +252,40 @@ export function WorkspacePanel() {
     if (files.length === 0) return;
     const adapter = requireAdapterSafe();
     if (!adapter) return;
+    const toast = useToastStore.getState();
 
     let imported = 0;
-    for (const file of files) {
-      const lower = file.name.toLowerCase();
-      if (lower.endsWith('.zip')) {
-        imported += await importZip(file, adapter);
-      } else if (lower.endsWith('.json')) {
-        imported += await importJson(file, adapter);
+    const failed: string[] = [];
+    try {
+      for (const file of files) {
+        const lower = file.name.toLowerCase();
+        let result: ImportResult | null = null;
+        if (lower.endsWith('.zip')) result = await importZip(file, adapter);
+        else if (lower.endsWith('.json')) result = await importJson(file, adapter);
+        if (result) {
+          imported += result.imported;
+          failed.push(...result.failed);
+        }
       }
+    } catch (err) {
+      toast.showToast(
+        `読み込み中にエラーが発生しました（${(err as Error)?.message ?? '接続やログイン状態を確認してください'}）`,
+        'error',
+      );
+      return;
     }
-    if (imported === 0) {
-      window.alert('復元できるファイル(.json / .zip)が見つかりませんでした');
+
+    if (imported === 0 && failed.length === 0) {
+      toast.showToast('復元できるファイル（.json / .zip）が見つかりませんでした', 'error');
+    } else if (failed.length > 0) {
+      const head = failed.slice(0, 3).join('、');
+      const more = failed.length > 3 ? ' ほか' : '';
+      toast.showToast(
+        `${imported}件を読み込みました。${failed.length}件は読み込めませんでした（${head}${more}）`,
+        'error',
+      );
+    } else {
+      toast.showToast(`${imported}件のファイルを読み込みました`, 'success');
     }
   };
 

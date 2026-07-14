@@ -1,10 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { CanvasStage } from '../canvas/CanvasStage';
-import { deserializeDocument } from '../core/document';
-import { pluginRegistry } from '../core/registry';
-import { useAutosave } from '../persistence/useAutosave';
-import { useDocumentStore } from '../state/documentStore';
+import { useDocumentIO } from '../persistence/useDocumentIO';
 import { useLayoutStore } from '../state/layoutStore';
 import { useWorkspaceStore } from '../state/workspaceStore';
 import { EditorModalHost } from '../ui/EditorModalHost';
@@ -22,24 +19,8 @@ export function EditorPage() {
   const navigate = useNavigate();
   const fileNode = useWorkspaceStore((s) => (fileId ? s.nodes[fileId] : undefined));
 
-  // ファイルの読み込み(fileId切り替え時)
-  useEffect(() => {
-    if (!fileId) return;
-    const adapter = useWorkspaceStore.getState().adapter;
-    if (!adapter) return;
-    let cancelled = false;
-    void adapter.readDocument(fileId).then((json) => {
-      if (cancelled) return;
-      useDocumentStore
-        .getState()
-        .loadObjects(json ? deserializeDocument(json, pluginRegistry) : {});
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [fileId]);
-
-  useAutosave(fileId);
+  // ファイルの読み込みと自動保存(読み込み成功までは保存しない=空上書き防止)
+  useDocumentIO(fileId);
 
   // ファイルが存在しない(削除された等)場合はホームへ
   useEffect(() => {
