@@ -34,6 +34,40 @@
   background: #e5e7eb;
 }
 
+.toolbar button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.toolbar button:disabled:hover {
+  background: #f3f4f6;
+}
+
+/* 読み込み中の進捗表示(スピナー + 件数) */
+.importing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #2563eb;
+  white-space: nowrap;
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #bfdbfe;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: workspace-spin 0.7s linear infinite;
+}
+
+@keyframes workspace-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .search {
   margin-left: auto;
   width: 160px;

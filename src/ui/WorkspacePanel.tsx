@@ -3,7 +3,7 @@ import { useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { SceneDocumentJson } from '../core/document';
 import type { StorageAdapter, WorkspaceNode } from '../persistence/types';
-import { buildWorkspaceZip, isSceneDocument, parseWorkspaceZip } from '../persistence/zip';
+import { buildWorkspaceZip, isSceneDocument, parseWorkspaceZip, type ZipEntry } from '../persistence/zip';
 import { useLayoutStore } from '../state/layoutStore';
 import { useToastStore } from '../state/toastStore';
 import { useWorkspaceStore } from '../state/workspaceStore';
@@ -27,10 +27,15 @@ function FileIcon() {
   );
 }
 
-/** インポート結果。imported=成功件数、failed=中身を書けなかったファイル名 */
-interface ImportResult {
-  imported: number;
-  failed: string[];
+/** 解析済みの読み込み単位。この時点ではまだノードを作らない(総数を数えてから書き込む) */
+type ImportJob =
+  | { kind: 'zip'; rootName: string; entries: ZipEntry[] }
+  | { kind: 'json'; name: string; doc: SceneDocumentJson };
+
+/** 読み込みの進捗。total=0 は総数集計前(不定) */
+interface ImportProgress {
+  done: number;
+  total: number;
 }
 
 interface RowProps {
@@ -137,6 +142,7 @@ export function WorkspacePanel() {
   const searchQuery = useWorkspaceStore((s) => s.searchQuery);
   const setSearchQuery = useWorkspaceStore((s) => s.setSearchQuery);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [importing, setImporting] = useState<ImportProgress | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const bottomHeight = useLayoutStore((s) => s.bottomHeight);
   const bottomCollapsed = useLayoutStore((s) => s.bottomCollapsed);
@@ -204,46 +210,28 @@ export function WorkspacePanel() {
     }
   };
 
-  // ZIPを展開し、ZIP名のフォルダ配下へ復元する(既存データとの衝突を避ける)
-  const importZip = async (file: File, adapter: StorageAdapter): Promise<ImportResult> => {
-    const entries = await parseWorkspaceZip(file);
-    if (entries.length === 0) return { imported: 0, failed: [] };
-    const rootName = file.name.replace(/\.zip$/i, '') || 'インポート';
-    const rootId = await store.createFolder(null, rootName);
-    const folderIds = new Map<string, string>();
-    const result: ImportResult = { imported: 0, failed: [] };
-    for (const entry of entries) {
-      let parentId = rootId;
-      let pathKey = '';
-      for (const segment of entry.folders) {
-        pathKey += `/${segment}`;
-        let folderId = folderIds.get(pathKey);
-        if (!folderId) {
-          folderId = await store.createFolder(parentId, segment);
-          folderIds.set(pathKey, folderId);
+  // 入力ファイルを解析して読み込み単位の一覧にする(ノードはまだ作らない=先に総数を数えるため)
+  const parseImports = async (files: File[]): Promise<ImportJob[]> => {
+    const jobs: ImportJob[] = [];
+    for (const file of files) {
+      const lower = file.name.toLowerCase();
+      if (lower.endsWith('.zip')) {
+        const entries = await parseWorkspaceZip(file);
+        if (entries.length > 0) {
+          jobs.push({ kind: 'zip', rootName: file.name.replace(/\.zip$/i, '') || 'インポート', entries });
         }
-        parentId = folderId;
+      } else if (lower.endsWith('.json')) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(await file.text());
+        } catch {
+          continue;
+        }
+        if (!isSceneDocument(parsed)) continue;
+        jobs.push({ kind: 'json', name: file.name.replace(/\.json$/i, '') || 'インポート', doc: parsed });
       }
-      const fileId = await store.createFile(parentId, entry.name);
-      if (await writeOrRollback(adapter, fileId, entry.doc)) result.imported += 1;
-      else result.failed.push(entry.name);
     }
-    return result;
-  };
-
-  // 単一の図JSONをルート直下へ復元する。妥当なドキュメントでなければ何もしない
-  const importJson = async (file: File, adapter: StorageAdapter): Promise<ImportResult> => {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(await file.text());
-    } catch {
-      return { imported: 0, failed: [] };
-    }
-    if (!isSceneDocument(parsed)) return { imported: 0, failed: [] };
-    const name = file.name.replace(/\.json$/i, '') || 'インポート';
-    const fileId = await store.createFile(null, name);
-    if (await writeOrRollback(adapter, fileId, parsed)) return { imported: 1, failed: [] };
-    return { imported: 0, failed: [name] };
+    return jobs;
   };
 
   const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -254,17 +242,42 @@ export function WorkspacePanel() {
     if (!adapter) return;
     const toast = useToastStore.getState();
 
+    setImporting({ done: 0, total: 0 }); // 解析中は total=0(不定表示)
     let imported = 0;
     const failed: string[] = [];
     try {
-      for (const file of files) {
-        const lower = file.name.toLowerCase();
-        let result: ImportResult | null = null;
-        if (lower.endsWith('.zip')) result = await importZip(file, adapter);
-        else if (lower.endsWith('.json')) result = await importJson(file, adapter);
-        if (result) {
-          imported += result.imported;
-          failed.push(...result.failed);
+      const jobs = await parseImports(files);
+      const total = jobs.reduce((n, j) => n + (j.kind === 'zip' ? j.entries.length : 1), 0);
+      let done = 0;
+      setImporting({ done, total });
+      const step = () => setImporting({ done: (done += 1), total });
+
+      for (const job of jobs) {
+        if (job.kind === 'json') {
+          const fileId = await store.createFile(null, job.name);
+          if (await writeOrRollback(adapter, fileId, job.doc)) imported += 1;
+          else failed.push(job.name);
+          step();
+        } else {
+          const rootId = await store.createFolder(null, job.rootName);
+          const folderIds = new Map<string, string>();
+          for (const entry of job.entries) {
+            let parentId = rootId;
+            let pathKey = '';
+            for (const segment of entry.folders) {
+              pathKey += `/${segment}`;
+              let folderId = folderIds.get(pathKey);
+              if (!folderId) {
+                folderId = await store.createFolder(parentId, segment);
+                folderIds.set(pathKey, folderId);
+              }
+              parentId = folderId;
+            }
+            const fileId = await store.createFile(parentId, entry.name);
+            if (await writeOrRollback(adapter, fileId, entry.doc)) imported += 1;
+            else failed.push(entry.name);
+            step();
+          }
         }
       }
     } catch (err) {
@@ -273,6 +286,8 @@ export function WorkspacePanel() {
         'error',
       );
       return;
+    } finally {
+      setImporting(null);
     }
 
     if (imported === 0 && failed.length === 0) {
@@ -304,19 +319,25 @@ export function WorkspacePanel() {
       <div className={styles.toolbar}>
         <span className={styles.heading}>ワークスペース</span>
         <WorkspaceSourceSelector />
-        <button type="button" onClick={onNewFile} title="新規ファイル">
+        <button type="button" onClick={onNewFile} title="新規ファイル" disabled={importing !== null}>
           +ファイル
         </button>
-        <button type="button" onClick={onNewFolder} title="新規フォルダ">
+        <button type="button" onClick={onNewFolder} title="新規フォルダ" disabled={importing !== null}>
           +フォルダ
         </button>
-        <button type="button" onClick={() => void onExport()} title="ワークスペース全体をZIPで書き出し">
+        <button
+          type="button"
+          onClick={() => void onExport()}
+          title="ワークスペース全体をZIPで書き出し"
+          disabled={importing !== null}
+        >
           ZIP出力
         </button>
         <button
           type="button"
           onClick={() => importInputRef.current?.click()}
           title="図JSON(個別) / ZIP(一括)から読込"
+          disabled={importing !== null}
         >
           読込
         </button>
@@ -328,6 +349,12 @@ export function WorkspacePanel() {
           hidden
           onChange={(e) => void onImportFile(e)}
         />
+        {importing && (
+          <span className={styles.importing} role="status" aria-live="polite">
+            <span className={styles.spinner} aria-hidden="true" />
+            {importing.total > 0 ? `読み込み中… ${importing.done} / ${importing.total}` : '読み込み中…'}
+          </span>
+        )}
         <input
           className={styles.search}
           type="search"
