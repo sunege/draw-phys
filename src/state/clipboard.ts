@@ -70,6 +70,8 @@ export function copySelection(): void {
   buffer = selection
     .map((id) => objects[id])
     .filter((obj): obj is SceneObject => obj !== undefined)
+    // 元のzIndex(前面/背面)順に並べておき、貼付け時の連番採番でその順序関係を保つ
+    .sort((a, b) => a.zIndex - b.zIndex)
     .map((obj) => structuredClone(obj));
   pasteCount = 0;
   // このコピーを「直近のコピー操作」とし、以後の貼付けで図形を優先する
