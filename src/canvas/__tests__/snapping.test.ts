@@ -39,6 +39,60 @@ describe('snapMovement', () => {
     expect(result.dy).toBe(10);
   });
 
+  describe('頂点同士の吸着', () => {
+    // 端点+中点をスナップ点に持つ線分プラグイン
+    const linePlugin = makeTestPlugin({
+      id: 'test.line.move',
+      getSnapPoints: (p) => [
+        { x: -p.width / 2, y: 0 },
+        { x: p.width / 2, y: 0 },
+      ],
+    });
+    const registry = new PluginRegistry();
+    registry.register(linePlugin);
+
+    it('移動側の端点が他図形の端点へ届いたらぴったり重ねる', () => {
+      // 静止側: 端点(150,100)。移動側: 端点(-50+x, y)
+      const fixed = createSceneObject(linePlugin, { x: 100, y: 100 }, 1);
+      const moving = createSceneObject(linePlugin, { x: 254, y: 103 }, 2); // 左端(204,103)
+      const objects = { [fixed.id]: fixed, [moving.id]: moving } as SceneObjects;
+      // 生の移動量で左端が(154,103)=静止側の右端(150,100)の近く(距離5)へ来る
+      const r = snapMovement({
+        rawDx: -50,
+        rawDy: 0,
+        movingBefore: { [moving.id]: moving.transform },
+        snapEnabled: true,
+        gridSize: 10,
+        objects,
+        registry,
+        threshold: 8,
+      });
+      // 端点が完全に重なる移動量へ補正される(グリッドへは丸めない)
+      expect(r.dx).toBeCloseTo(-54);
+      expect(r.dy).toBeCloseTo(-3);
+      expect(r.marker).toEqual({ x: 150, y: 100 });
+    });
+
+    it('近い頂点が無ければ従来どおりグリッドへ丸める', () => {
+      const fixed = createSceneObject(linePlugin, { x: 100, y: 100 }, 1);
+      const moving = createSceneObject(linePlugin, { x: 600, y: 600 }, 2);
+      const objects = { [fixed.id]: fixed, [moving.id]: moving } as SceneObjects;
+      const r = snapMovement({
+        rawDx: 13,
+        rawDy: 7,
+        movingBefore: { [moving.id]: moving.transform },
+        snapEnabled: true,
+        gridSize: 10,
+        objects,
+        registry,
+        threshold: 8,
+      });
+      expect(r.dx).toBe(10);
+      expect(r.dy).toBe(10);
+      expect(r.marker).toBeUndefined();
+    });
+  });
+
   it('複数選択でも相対位置が保たれる(一様な移動量)', () => {
     const a = createSceneObject(plugin, { x: 0, y: 0 }, 1);
     const b = createSceneObject(plugin, { x: 37, y: 13 }, 2);
@@ -143,6 +197,90 @@ describe('snapEndpoint', () => {
     expect(away.marker).toBeUndefined();
   });
 
+  describe('頂点(端点)への吸着', () => {
+    // 線分プラグイン(端点+中点をスナップ点に持つ=line と同じ形)
+    const linePlugin = makeTestPlugin({
+      id: 'test.line.endpoint',
+      getSnapPoints: (p) => [
+        { x: -p.width / 2, y: 0 },
+        { x: 0, y: 0 },
+        { x: p.width / 2, y: 0 },
+      ],
+      getSegments: (p) => [
+        [
+          { x: -p.width / 2, y: 0 },
+          { x: p.width / 2, y: 0 },
+        ],
+      ],
+    });
+    const reg = new PluginRegistry();
+    reg.register(linePlugin);
+    // 線分ワールド (50,100)-(150,100)。右端の頂点は(150,100)
+    const lineBase = { ...base, registry: reg, threshold: 8 };
+    function lineObjects() {
+      const o = createSceneObject(linePlugin, { x: 100, y: 100 }, 1);
+      return { objects: { [o.id]: o } as SceneObjects, id: o.id };
+    }
+
+    it('端点の近くでは辺への垂線の足より端点を優先する', () => {
+      const { objects, id } = lineObjects();
+      // (145,102): 辺上の最近点(145,100)は距離2、右端(150,100)は距離約5.4。端点が勝つ
+      const r = snapEndpoint({ ...lineBase, objects, point: { x: 145, y: 102 } });
+      expect(r.point.x).toBeCloseTo(150);
+      expect(r.point.y).toBeCloseTo(100);
+      expect(r.vertex).toBe(true);
+      // 長さマーク等のバインドは維持する(端点が乗っている辺を相手にする)
+      expect(r.attach).toEqual({ targetId: id, kind: 'segment', segIndex: 0 });
+    });
+
+    it('端点はグリッド点より遠くても優先する(端点同士をぴったり合わせる)', () => {
+      const o = createSceneObject(linePlugin, { x: 103, y: 100 }, 1);
+      // 線分(53,100)-(153,100)。右端(153,100)はグリッド(40)から外れている
+      const r = snapEndpoint({
+        ...lineBase,
+        objects: { [o.id]: o } as SceneObjects,
+        point: { x: 158, y: 100 },
+      });
+      expect(r.point.x).toBeCloseTo(153);
+      expect(r.vertex).toBe(true);
+    });
+
+    it('辺の途中では従来どおり辺へ吸着する(頂点扱いにしない)', () => {
+      const { objects, id } = lineObjects();
+      const r = snapEndpoint({ ...lineBase, objects, point: { x: 120, y: 103 } });
+      expect(r.point.x).toBeCloseTo(120);
+      expect(r.point.y).toBeCloseTo(100);
+      expect(r.vertex).toBe(false);
+      expect(r.attach).toEqual({ targetId: id, kind: 'segment', segIndex: 0 });
+    });
+
+    it('円周上の頂点(4分点)へ吸着しても円のバインドは維持する', () => {
+      const circlePlugin = makeTestPlugin({
+        id: 'test.circle.endpoint',
+        getSnapPoints: (p) => [
+          { x: 0, y: 0 },
+          { x: p.width / 2, y: 0 },
+        ],
+        getCircle: (p) => ({ center: { x: 0, y: 0 }, radius: p.width / 2 }),
+      });
+      const circleReg = new PluginRegistry();
+      circleReg.register(circlePlugin);
+      const c = createSceneObject(circlePlugin, { x: 0, y: 0 }, 1); // 半径50
+      // 右の4分点(50,0)近傍。円周上の最近点より頂点が優先される
+      const r = snapEndpoint({
+        ...lineBase,
+        registry: circleReg,
+        objects: { [c.id]: c } as SceneObjects,
+        point: { x: 48, y: 4 },
+      });
+      expect(r.point.x).toBeCloseTo(50);
+      expect(r.point.y).toBeCloseTo(0);
+      expect(r.vertex).toBe(true);
+      expect(r.attach?.kind).toBe('circle');
+      expect(r.attach?.t).toBeCloseTo(0);
+    });
+  });
+
   it('楕円周へ吸着する(位置のみ、attachは付かない)', () => {
     const ellipsePlugin = makeTestPlugin({
       id: 'test.ellipse.endpoint',
@@ -218,6 +356,15 @@ describe('snapAnchorPoint', () => {
       expect(r.bind.targetId).toBe(id);
       expect(r.bind.t).toBeCloseTo(0.7); // (120-50)/100
     }
+  });
+
+  it('離散スナップ点はグリッド点より遠くても優先する', () => {
+    const o = createSceneObject(anchorPlugin, { x: 103, y: 100 }, 1);
+    // 右端はワールド(153,100)=グリッド(40)から外れている。(158,100)から頂点へ吸着する
+    const r = snapAnchorPoint({ ...base, objects: { [o.id]: o } as SceneObjects, point: { x: 158, y: 100 } });
+    expect(r.point.x).toBeCloseTo(153);
+    expect(r.vertex).toBe(true);
+    expect(r.bind).toEqual({ targetId: o.id, kind: 'point', pointIndex: 1 });
   });
 
   it('どこにも近くなければグリッドへ吸着し bind は無い', () => {

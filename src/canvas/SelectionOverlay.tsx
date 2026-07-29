@@ -174,23 +174,35 @@ function SingleSelection({ obj, zoom }: { obj: SceneObject; zoom: number }) {
           </g>
         );
       })}
-      {/* プラグイン定義のパーツハンドル(グラフの原点など)。movePartでドラッグ */}
+      {/* プラグイン定義のパーツハンドル(グラフの原点・平行四辺形の頂点など)。movePartでドラッグ */}
       {plugin.movePart &&
-        plugin.getParts?.(obj.props).map((part) => (
-          <circle
-            key={part.id}
-            data-handle={`part:${part.id}`}
-            cx={part.local.x * t.scaleX}
-            cy={part.local.y * t.scaleY}
-            r={6 / zoom}
-            fill="rgba(43,125,233,0.15)"
-            stroke={STROKE}
-            strokeWidth={1.5 / zoom}
-            style={{ cursor: 'move' }}
-          >
-            {part.title && <title>{part.title}</title>}
-          </circle>
-        ))}
+        plugin.getParts?.(obj.props).map((part) => {
+          const cx = part.local.x * t.scaleX;
+          const cy = part.local.y * t.scaleY;
+          const r = (part.shape === 'diamond' ? 5 : 6) / zoom;
+          const common = {
+            'data-handle': `part:${part.id}`,
+            fill: 'rgba(43,125,233,0.15)',
+            stroke: STROKE,
+            strokeWidth: 1.5 / zoom,
+            style: { cursor: 'move' },
+          };
+          // 菱形はスケールハンドル(一辺8pxの正方形)の角がはみ出す大きさにして、
+          // 頂点と角スケールが重なっても両方つかめるようにする
+          return part.shape === 'diamond' ? (
+            <polygon
+              key={part.id}
+              points={`${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}`}
+              {...common}
+            >
+              {part.title && <title>{part.title}</title>}
+            </polygon>
+          ) : (
+            <circle key={part.id} cx={cx} cy={cy} r={r} {...common}>
+              {part.title && <title>{part.title}</title>}
+            </circle>
+          );
+        })}
       {/* 接続点ハンドル(接線拘束された線の接点。円周上をスライドする) */}
       {anchorLocal && (
         <circle

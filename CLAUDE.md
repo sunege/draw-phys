@@ -26,6 +26,7 @@ npm test       # vitest run
 - `applyScale`/`getEndpoints`+`setFromEndpoints`/`applyRefs`/`moveLabel` — 操作の焼き込み
 - `initProps(props,siblings)` — 配置直後に同種既存を見て補正（用紙枠のページ自動採番）
 - `capabilities`: `rotatable` / `scalable`('both'|'uniform'|'x'|'none') / `construction`(補助線化, 線・円のみ) / `printFrame`(用紙枠=本体が種別を知らず用紙を発見)
+- `placement:'click-path'`+`createFromPath(worldPoints)` — 頂点を順にクリックし最初の頂点(またはEnter)で閉じる配置。`canAppendPathPoint`/`canClosePath`で不正な形(自己交差)のクリックを拒否できる。多角形が使用
 - `EditorModal`(+`openEditorOnCreate`) — 大型エディタ。`editorModalStore`+汎用`SourceEditorModal`。latex/latexDocが使用。**latexDoc**は地の文+KaTeX混在を`latexDocParser.ts`(純粋)で分割・枠幅で折返し、`applyScale`はフォント不変で枠のみ
 
 **グラフ**(`src/plugins/graph/`)は座標系+複数プロットの複合プラグイン。数式`exprParser.ts`(初等関数・暗黙乗算・全角正規化)、座標変換・目盛り・最小二乗は純粋`graphMath.ts`(要テスト)。表示範囲props持ちで原点ハンドル=パン・「グラフ範囲」ツール=ズーム。曲線はサイズ由来idの`clipPath`で箱内クリップ(objectId非依存=書き出し安全)。
@@ -40,13 +41,15 @@ npm test       # vitest run
 - **箱型**(rect/circle/block/text/latex/point/arc/image/table/pageFrame)は`applyScale`でサイズを**propsへ焼き込む**(`transform.scale`常に1→線幅不変・文字サイズ可変)。計算`src/canvas/transformMath.ts`。
 - **線分系**(line/arrow/spring/vector/force/floor)は`scalable:'none'`＋`getEndpoints`/`setFromEndpoints`の端点編集。
 
+**多角形**(`core.polygon`, `polygonMath.ts`)は頂点列propsを持つ箱型。頂点/辺ハンドル=`getParts`/`movePart`、全頂点+辺中点が`getSnapPoints`(頂点が先頭=`pointIndex`が安定)。**ローカル原点は生成時の重心のまま再センタリングしない**——一致拘束の`localAnchor`はローカル座標なので、フレームが動くと拘束済みの頂点が別の点にすり替わる。自己交差(`isSimplePolygon`)する作成クリック・ドラッグは拒否して直前の形を保つ。
+
 回転(`transformMath.ts`): 表示角「水平右=0°・反時計回り正」、内部rotation(画面時計回り正)と`toDisplayAngle`/`fromDisplayAngle`で符号反転。回転ハンドルは任意軸ピボット対応(一時状態・非永続)。
 
 ### 参照/拘束レイヤー（refs）
 
 `SceneObject.refs?: ObjectRef[]`が他オブジェクトへの参照を持つ。`src/core/constraints.ts`の`resolveRef`が対象の`getSegments`/`getCircle`/スナップ点+transformからワールドのアンカー・接線・半径を算出、`solveConstraints`が**DFSトポロジカル順(対象→依存)**で解決。refsはプレーンデータ=保存・Undo/Redoに乗り再実行で整合回復。循環・欠損はスキップ。2方式:
 1. **プラグイン固有**(`applyRefs`): 依存側が自分のtransform/propsを再構築。角度/長さマーク・接線。
-2. **本体ソルバ直接**(`solveReservedRoles`, `ObjectRef.role`予約): **refs配列順=優先度の逐次DOF解決**(位置2・回転1・線分系は長さ1)。`'parallel'`/`'perpendicular'`=回転(`angleOffset`加算、排他)。`'coincident'`=局所`localAnchor`を基準点へ一致。**複数可**: 2本目は回転+長さ(線分=`setFromEndpoints`で伸縮+`localAnchor`書き直し/剛体=距離一致必須)で解く=2点拘束。`'anchor'`(kind:'circle')がcoincidentと同居すると**一致点を通る円への接線**として回転を解く(接点浮動、`t`書き直し。単独時は従来どおり`applyRefs`)。**注意: 端点を円周に一致させた拘束は`{role:'coincident', kind:'circle'}`＝`kind`だけでは接線と区別不能**。接点ハンドルの表示/接点スライドdrag/マスター円の移動追従など「接線らしさ」判定は必ず`findTangentAnchor`(`role==='anchor' && kind==='circle'`)を通す(`kind==='circle'`だけで判定すると円周一致線に旧接線マークが出て、ドラッグで接線化してしまう)。基準は対象スナップ点(`kind:'point'`+`pointIndex`, `localSnapPoints`で並び共有)or自由座標`worldAnchor`(`targetId:''`)。
+2. **本体ソルバ直接**(`solveReservedRoles`, `ObjectRef.role`予約): **refs配列順=優先度の逐次DOF解決**(位置2・回転1・線分系は長さ1)。`'parallel'`/`'perpendicular'`=回転(`angleOffset`加算、排他)。**`selfSegIndex`があれば自オブジェクトのその辺(`getSegments`)を基準へ揃える**=多角形・長方形で「この辺を平行に」。解くたび現在の辺角度を`selfSegmentAngle`で測り直すので頂点編集にも追従(省略時は従来どおりローカルX軸)。`'coincident'`=局所`localAnchor`を基準点へ一致。**複数可**: 2本目は回転+長さ(線分=`setFromEndpoints`で伸縮+`localAnchor`書き直し/剛体=距離一致必須)で解く=2点拘束。`'anchor'`(kind:'circle')がcoincidentと同居すると**一致点を通る円への接線**として回転を解く(接点浮動、`t`書き直し。単独時は従来どおり`applyRefs`)。**注意: 端点を円周に一致させた拘束は`{role:'coincident', kind:'circle'}`＝`kind`だけでは接線と区別不能**。接点ハンドルの表示/接点スライドdrag/マスター円の移動追従など「接線らしさ」判定は必ず`findTangentAnchor`(`role==='anchor' && kind==='circle'`)を通す(`kind==='circle'`だけで判定すると円周一致線に旧接線マークが出て、ドラッグで接線化してしまう)。基準は対象スナップ点(`kind:'point'`+`pointIndex`, `localSnapPoints`で並び共有)or自由座標`worldAnchor`(`targetId:''`)。
 
 先着の拘束を厳密に満たし、後着で解けないものは`ConstraintIssue`(過剰拘束)→`constraintStore.issues`→マーカー赤表示。拘束作成は`tryAddRefs`(CanvasStage)が試し解きで却下しトースト表示。回転拘束の判定は`isRotationConstrained`(平行/垂直・一致×2・一致+接線→回転ハンドル/角度入力を非表示)。長さは`isLengthConstrained`(一致×2→パネルの長さ入力を無効化)。パネルの長さ変更(`updateProps`)は線分系(`getEndpoints`)で一致アンカーの`localAnchor`を長さ比で更新し、一致点を固定して反対端だけ伸縮させる。拘束作成は非プラグイン操作ツール(`src/canvas/tools.tsx`の`OPERATION_TOOLS`)。マーカーは`ConstraintMarkers.tsx`常時描画(平行`>>`/垂直L字/一致リング×refs位置)、`data-constraint-role`(+`data-constraint-index`)クリック→`constraintStore.focused`→解除ピル/Deleteでその拘束のみ除去。端点ドラッグは一致=基準点/平行垂直・一致+接線=向き固定で反対端を編集(一致×2は完全拘束=端点編集不可)。一致点ドラッグは`projectAnchorPoint`で**対象オブジェクトの幾何上のみ**スライド(自由基準点のみ`snapAnchorPoint`で再接続可)。**`localAnchor`はオブジェクトのローカル座標=長さで変わるフレーム基準なので`props`(長さ)と対**。2点拘束の線分は解くたびソルバが`localAnchor`+`props`を同フレームへ書き直す＝両者が整合している前提。この整合が崩れると2点拘束の再パラメタ化(`u1/u2`)がずれ長さが発散する。よって**一致マーカーのドラッグは毎tick `props/transform/refs`をドラッグ開始値へ戻してから解く**(`setObjectTransient`。前tickで伸びた`props`を持ち越すと`beforeRefs`の旧フレーム`localAnchor`と食い違い発散)。commitも同様に開始値へ戻してから確定。
 
@@ -56,7 +59,7 @@ npm test       # vitest run
 
 ### 入力処理は CanvasStage に集中
 
-`src/canvas/CanvasStage.tsx`が全ポインタ操作の中心。`DragState`ユニオン(move/scale/rotate/endpoint/anchor/labelDrag/markOffset/marquee/place-line/pan)を down=モード判定/move=フック+transient/up=commit で回す。選択枠`SelectionOverlay.tsx`、スナップ`snapping.ts`(グリッド＋`snapEndpoint`＋`snapAnchorPoint`。移動はグリッドのみ)。マーキーは`rectsIntersect`だが**用紙枠は`rectContains`**(枠全体を囲んだ時だけ選択=内部ドラッグで巻き込まない)。**画像取込**: 外枠へのファイルD&Dと`paste`イベント(OSクリップボード画像は`clipboardData`=pasteでしか読めず、Ctrl+Vはpasteで処理。画像あれば画像化・無ければ`pasteClipboard`)。挿入`insertImage.ts`+`imageLoad.ts`。
+`src/canvas/CanvasStage.tsx`が全ポインタ操作の中心。`DragState`ユニオン(move/scale/rotate/endpoint/anchor/labelDrag/markOffset/marquee/place-line/pan)を down=モード判定/move=フック+transient/up=commit で回す。選択枠`SelectionOverlay.tsx`、スナップ`snapping.ts`(グリッド＋`snapEndpoint`＋`snapAnchorPoint`)。**頂点(端点・角・中心=`getSnapPoints`)はしきい値内なら辺・円周・グリッドより優先**する(端点の近くでは辺への垂線の足が常に近く、距離だけで選ぶと端点同士がぴったり合わない)。頂点吸着でも「乗っている辺・円周」を`attach`にするので長さマークのバインドは維持される。ドラッグ配置(drag-line/drag-rect)の始点・終点と click-path の頂点も`snapPlacePoint`で同じ吸着を通す。移動ドラッグは`snapMovement`が**移動側の頂点↔他オブジェクトの頂点**の最近ペアで重ね、無ければ先頭オブジェクト基準のグリッド。吸着マーカーは頂点=四角/辺・円周=丸(`Guides.vertex`)。マーキーは`rectsIntersect`だが**用紙枠は`rectContains`**(枠全体を囲んだ時だけ選択=内部ドラッグで巻き込まない)。**画像取込**: 外枠へのファイルD&Dと`paste`イベント(OSクリップボード画像は`clipboardData`=pasteでしか読めず、Ctrl+Vはpasteで処理。画像あれば画像化・無ければ`pasteClipboard`)。挿入`insertImage.ts`+`imageLoad.ts`。
 
 ### 描画レイヤーとラベル
 

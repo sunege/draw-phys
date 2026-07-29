@@ -74,6 +74,22 @@ export function perpendicularOffset(objRot: number, refAngle: number): number {
 }
 
 /**
+ * 平行/垂直拘束で「自オブジェクト側の辺」の向き(ローカル角度・度)。
+ * selfSegIndex を持つ ref だけが対象で、無ければ 0(=ローカルX軸=従来の挙動)。
+ * 解くたびに現在の props から測るので、多角形の頂点を編集して辺が傾いても追従する。
+ */
+export function selfSegmentAngle(
+  plugin: AnyPlugin | undefined,
+  props: unknown,
+  ref: ObjectRef,
+): number {
+  if (ref.selfSegIndex == null) return 0;
+  const seg = plugin?.getSegments?.(props)?.[ref.selfSegIndex];
+  if (!seg) return 0;
+  return angleOfVector({ x: seg[1].x - seg[0].x, y: seg[1].y - seg[0].y });
+}
+
+/**
  * 回転を拘束する参照(平行 or 垂直)を返す。両者は同一成分(回転)を奪い合うため排他。
  * どちらも angleOffset を基準角に足して回転を決める(平行=0/180, 垂直=±90)。
  */
@@ -509,7 +525,9 @@ function solveReservedRoles(
     if (ref.role === 'parallel' || ref.role === 'perpendicular') {
       const r = resolveRef(ref, objs, registry);
       if (!r?.tangent) continue; // 欠損はスキップ
-      const target = angleOfVector(r.tangent) + (ref.angleOffset ?? 0);
+      // 自オブジェクト側の辺(selfSegIndex)を基準へ揃える。回転はその辺のローカル角度ぶん戻す
+      const target =
+        angleOfVector(r.tangent) + (ref.angleOffset ?? 0) - selfSegmentAngle(plugin, props, ref);
       if (!rotationLocked) {
         transform = { ...transform, rotation: target };
         rotationLocked = true;

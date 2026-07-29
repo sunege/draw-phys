@@ -8,6 +8,7 @@ import {
   parallelOffset,
   perpendicularOffset,
   resolveCoincidentAnchor,
+  selfSegmentAngle,
   solveConstraints,
   type ConstraintIssue,
 } from '../core/constraints';
@@ -26,6 +27,7 @@ import {
   worldBounds,
   worldToLocal,
 } from '../core/geometry';
+import { partDragResult } from '../core/plugin';
 import type { AnyPlugin, EdgePick, SegmentPick } from '../core/plugin';
 import { pluginRegistry } from '../core/registry';
 import type { ObjectRef, Point, Rect, Transform } from '../core/types';
@@ -208,6 +210,8 @@ type DragState =
       beforeProps: Record<string, unknown>;
       plugin: AnyPlugin;
       startWorld: Point;
+      /** 吸着の基準点(ローカル座標)。null なら吸着しない(頂点・辺ハンドルで使う) */
+      snapLocal: Point | null;
       moved: boolean;
     }
   | {
@@ -229,6 +233,8 @@ interface PlacementPreview {
 interface Guides {
   /** 端点がオブジェクトへ吸着した位置のマーカー */
   marker?: Point;
+  /** 吸着先が頂点(端点・角・中心)か(辺・円周への吸着と見分けられるよう表示を変える) */
+  vertex?: boolean;
 }
 
 /** 編集対象外の要素(入力欄など)でのキー操作か判定する */
@@ -363,6 +369,47 @@ function pickSegment(obj: SceneObject, world: Point): SegmentPick | null {
   const { best } = holder;
   if (!best) return null;
   return { targetId: obj.id, segIndex: best.i, worldPoint: world, a: best.a, b: best.b };
+}
+
+/** click-path 配置で「最初の頂点をクリックした=閉じる」とみなす画面上の半径(px) */
+const CLOSE_PATH_RADIUS = 10;
+
+/**
+ * 配置(click-path の頂点・ドラッグ配置の始点/終点)のスナップ。グリッドに加えて
+ * 他オブジェクトの頂点・辺へ吸着させる(頂点優先なので線の端点にぴったり繋げられる。
+ * 重ねておけば後から一致拘束も張れる)。
+ */
+function snapPlacePoint(
+  world: Point,
+  objects: SceneObjects,
+  snapEnabled: boolean,
+  gridSize: number,
+  threshold: number,
+): { point: Point; marker?: Point; vertex?: boolean } {
+  const snapped = snapEndpoint({
+    point: world,
+    objects,
+    registry: pluginRegistry,
+    excludeIds: new Set<string>(),
+    snapEnabled,
+    gridSize,
+    threshold,
+  });
+  return { point: snapped.point, marker: snapped.marker, vertex: snapped.vertex };
+}
+
+/**
+ * 平行/垂直拘束で「自オブジェクト側のどの辺を基準へ揃えるか」を、クリック位置から決める。
+ * 辺を複数持つ図形(多角形・長方形など)でクリックが辺の近くにあるときだけ辺を返す。
+ * 線・矢印など単一線分の図形は従来どおり undefined(=オブジェクトの向きそのもの)。
+ */
+function selfEdgeIndexAt(obj: SceneObject, world: Point, threshold: number): number | undefined {
+  const segs = pluginRegistry.get(obj.pluginId)?.getSegments?.(obj.props);
+  if (!segs || segs.length < 2) return undefined;
+  const pick = pickSegment(obj, world);
+  if (!pick) return undefined;
+  const d = distance(world, nearestPointOnSegment(world, pick.a, pick.b));
+  return d <= threshold ? pick.segIndex : undefined;
 }
 
 /** 角度tを円弧の角度範囲[start, start+sweep]にクランプする */
@@ -649,10 +696,45 @@ export function CanvasStage() {
   const [preview, setPreview] = useState<PlacementPreview | null>(null);
   /** pick-segments 配置(角度マーク)で選択済みの線分ピック */
   const [segPicks, setSegPicks] = useState<SegmentPick[]>([]);
+  /** click-path 配置(多角形)で置き終えた頂点(ワールド座標)とポインタ位置のプレビュー点 */
+  const [pathPoints, setPathPoints] = useState<Point[]>([]);
+  const [pathCursor, setPathCursor] = useState<Point | null>(null);
+  // キーボードハンドラ(マウント時に1度だけ登録)からも最新の頂点列を読めるようrefと二重に持つ
+  const pathPointsRef = useRef<Point[]>([]);
+  const setPath = (points: Point[]) => {
+    pathPointsRef.current = points;
+    setPathPoints(points);
+  };
+  /**
+   * click-path 配置を確定する(最初の頂点クリック / Enter)。
+   * 閉じられない(頂点不足・自己交差)ときは何もしない。
+   */
+  const finishPathPlacement = () => {
+    const points = pathPointsRef.current;
+    const plugin = pluginRegistry.get(useToolStore.getState().activeTool);
+    if (!plugin?.createFromPath) return;
+    if (plugin.canClosePath ? !plugin.canClosePath(points) : points.length < 3) return;
+    const doc = useDocumentStore.getState();
+    const created = plugin.createFromPath(points);
+    doc.addObject({
+      ...createSceneObject(plugin, created.transform, doc.nextZIndex),
+      props: created.props as Record<string, unknown>,
+      transform: created.transform,
+    });
+    setPath([]);
+    setPathCursor(null);
+    setGuides({});
+    useToolStore.getState().setActiveTool('select');
+  };
   /** 接線モードで先に選択した既存線分のID(省略可) */
   const [tangentLineId, setTangentLineId] = useState<string | null>(null);
-  /** 平行拘束モードで先に選択した「向きを変えるオブジェクト」のID */
-  const [parallelObjId, setParallelObjId] = useState<string | null>(null);
+  /**
+   * 平行拘束モードで先に選択した「向きを変えるオブジェクト」。
+   * 多角形・長方形のように辺を複数持つ図形は、クリックした辺(selfSegIndex)を基準へ揃える。
+   */
+  const [parallelPick, setParallelPick] = useState<{ objId: string; selfSegIndex?: number } | null>(
+    null,
+  );
   /** 一致/接続モードで先に選択した「動かす側」のIDと接続点(局所アンカー) */
   const [coincidentPick, setCoincidentPick] = useState<{ objId: string; localAnchor: Point } | null>(
     null,
@@ -679,7 +761,7 @@ export function CanvasStage() {
     if (activeTool !== 'select') setHoverRect(null);
   }, [activeTool]);
   // 拘束モードで1回目に選んだオブジェクト(安定した参照を購読し、枠は描画時に導出)
-  const firstPickId = parallelObjId ?? coincidentPick?.objId ?? tangentLineId ?? null;
+  const firstPickId = parallelPick?.objId ?? coincidentPick?.objId ?? tangentLineId ?? null;
   const firstPickObj = useDocumentStore((s) => (firstPickId ? s.objects[firstPickId] : undefined));
   const firstPickPlugin = firstPickObj ? pluginRegistry.get(firstPickObj.pluginId) : undefined;
   const firstPickBounds =
@@ -819,12 +901,17 @@ export function CanvasStage() {
         // ユーザーガイドの開閉(メニューバーの「ガイド」と同じ)
         e.preventDefault();
         useHelpStore.getState().toggle();
+      } else if (e.key === 'Enter' && pathPointsRef.current.length > 0) {
+        // click-path 配置(多角形): 最初の頂点をクリックする代わりにEnterでも閉じられる
+        e.preventDefault();
+        finishPathPlacement();
       } else if (e.key === 'Escape') {
         useToolStore.getState().setActiveTool('select');
         doc.clearSelection();
         setSegPicks([]);
+        setPath([]);
         setTangentLineId(null);
-        setParallelObjId(null);
+        setParallelPick(null);
         setCoincidentPick(null);
         setMirrorArmed(false);
         setSymmetryPick(null);
@@ -883,6 +970,9 @@ export function CanvasStage() {
   // 基準ピックへ進む」よう初期化する。1つ目に使えない選択(複数/不適合)なら選択を解除して1つ目から。
   useEffect(() => {
     setSegPicks([]);
+    setPath([]);
+    setPathCursor(null);
+    setGuides({});
     const doc = useDocumentStore.getState();
     const sel = doc.selection;
     const single = sel.length === 1 ? doc.objects[sel[0]] : undefined;
@@ -891,7 +981,8 @@ export function CanvasStage() {
     // 平行/垂直: 単一選択を「向きを変える側」として基準線ピックへ
     const parallelInit =
       !!single && (activeTool === PARALLEL_TOOL || activeTool === PERPENDICULAR_TOOL);
-    setParallelObjId(parallelInit ? single!.id : null);
+    // 事前選択からの開始ではどの辺かを指定できないため selfSegIndex は付けない
+    setParallelPick(parallelInit ? { objId: single!.id } : null);
 
     // 接線: 単一選択が線分系(getEndpoints)なら接続元として円/円弧ピックへ
     const tangentInit = !!single && activeTool === TANGENT_TOOL && !!singlePlugin?.getEndpoints;
@@ -933,9 +1024,13 @@ export function CanvasStage() {
     if (activeTool === PARALLEL_TOOL || activeTool === PERPENDICULAR_TOOL) {
       const title = activeTool === PERPENDICULAR_TOOL ? '垂直' : '平行';
       setHint(
-        parallelObjId
+        parallelPick
           ? { title, message: '基準にする線分・辺をクリック', step: { current: 2, total: 2 } }
-          : { title, message: '向きを合わせるオブジェクトをクリック', step: { current: 1, total: 2 } },
+          : {
+              title,
+              message: '向きを合わせるオブジェクトをクリック（多角形などは合わせたい辺の上）',
+              step: { current: 1, total: 2 },
+            },
       );
     } else if (activeTool === COINCIDENT_TOOL) {
       setHint(
@@ -978,7 +1073,21 @@ export function CanvasStage() {
     } else {
       // pick-segments配置のプラグイン(なめらか接続・角度マーク)は種別を問わず汎用に案内する
       const plugin = pluginRegistry.get(activeTool);
-      if (plugin?.placement === 'pick-segments') {
+      if (plugin?.placement === 'click-path') {
+        setHint(
+          pathPoints.length >= 3
+            ? {
+                title: plugin.name,
+                message: '最初の頂点をクリックで閉じる（Enterでも可 / Escで中止）',
+                step: { current: pathPoints.length, total: pathPoints.length + 1 },
+              }
+            : {
+                title: plugin.name,
+                message: '頂点を順にクリック（3つ以上置くと閉じられます / Escで中止）',
+                step: { current: Math.max(pathPoints.length, 1), total: 3 },
+              },
+        );
+      } else if (plugin?.placement === 'pick-segments') {
         setHint(
           segPicks.length > 0
             ? {
@@ -996,7 +1105,16 @@ export function CanvasStage() {
         setHint(null);
       }
     }
-  }, [activeTool, parallelObjId, coincidentPick, tangentLineId, mirrorArmed, symmetryPick, segPicks]);
+  }, [
+    activeTool,
+    parallelPick,
+    coincidentPick,
+    tangentLineId,
+    mirrorArmed,
+    symmetryPick,
+    segPicks,
+    pathPoints,
+  ]);
 
   // アンマウント時にヒントを片付ける
   useEffect(() => () => useHintStore.getState().clearHint(), []);
@@ -1222,29 +1340,35 @@ export function CanvasStage() {
       const hit = (e.target as Element).closest('[data-object-id]');
       const hitObj = hit ? doc.objects[hit.getAttribute('data-object-id') ?? ''] : undefined;
       if (!hitObj) return;
-      if (!parallelObjId) {
-        // 1回目: 拘束される側を選ぶ
-        setParallelObjId(hitObj.id);
+      if (!parallelPick) {
+        // 1回目: 拘束される側を選ぶ。辺を複数持つ図形(多角形・長方形)は
+        // クリックに近い辺を「向きを合わせる辺」として覚える
+        setParallelPick({ objId: hitObj.id, selfSegIndex: selfEdgeIndexAt(hitObj, world, 12 / zoom) });
         doc.setSelection([hitObj.id]);
         return;
       }
-      if (hitObj.id === parallelObjId) return; // 自分自身は基準にできない
+      if (hitObj.id === parallelPick.objId) return; // 自分自身は基準にできない
       // 2回目: 基準となる線分/エッジを選ぶ(getSegments を持つオブジェクトのみ)
       const pick = pickSegment(hitObj, world);
       if (!pick) return;
-      const dep = doc.objects[parallelObjId];
+      const dep = doc.objects[parallelPick.objId];
       if (!dep) {
-        setParallelObjId(null);
+        setParallelPick(null);
         return;
       }
       const refAngle = angleOfVector({ x: pick.b.x - pick.a.x, y: pick.b.y - pick.a.y });
+      // 反転(0/180・±90)の選び方は「合わせる辺の現在の向き」を基準に最小回転で決める
+      const depPlugin = pluginRegistry.get(dep.pluginId);
+      const selfRef = { role: 'parallel', targetId: '', kind: 'segment' as const, selfSegIndex: parallelPick.selfSegIndex };
+      const selfAngle = selfSegmentAngle(depPlugin, dep.props, selfRef);
+      const depAngle = dep.transform.rotation + selfAngle;
       const offset = perp
-        ? perpendicularOffset(dep.transform.rotation, refAngle)
-        : parallelOffset(dep.transform.rotation, refAngle);
+        ? perpendicularOffset(depAngle, refAngle)
+        : parallelOffset(depAngle, refAngle);
       // 回転拘束(平行/垂直)は排他。既存の回転拘束を外して付け替える。
       // 一致×2などで回転が既に決まっていれば過剰拘束として却下される(試し解き)
       const others = dep.refs?.filter((r) => r.role !== 'parallel' && r.role !== 'perpendicular') ?? [];
-      const added = tryAddRefs(parallelObjId, [
+      const added = tryAddRefs(parallelPick.objId, [
         ...others,
         {
           role: perp ? 'perpendicular' : 'parallel',
@@ -1253,10 +1377,11 @@ export function CanvasStage() {
           segIndex: pick.segIndex,
           t: 0.5,
           angleOffset: offset,
+          selfSegIndex: parallelPick.selfSegIndex,
         },
       ]);
-      if (added) doc.setSelection([parallelObjId]);
-      setParallelObjId(null);
+      if (added) doc.setSelection([parallelPick.objId]);
+      setParallelPick(null);
       useToolStore.getState().setActiveTool('select');
       return;
     }
@@ -1432,6 +1557,24 @@ export function CanvasStage() {
       const plugin = pluginRegistry.get(activeTool);
       if (!plugin) return;
 
+      // click-path: 頂点を順にクリックし、最初の頂点をクリックすると閉じて生成(多角形)
+      if (plugin.placement === 'click-path' && plugin.createFromPath) {
+        const points = pathPointsRef.current;
+        // 最初の頂点の上でクリック=閉じる(3頂点以上・自己交差しない場合のみ)
+        if (points.length >= 3 && distance(world, points[0]) <= CLOSE_PATH_RADIUS / zoom) {
+          finishPathPlacement();
+          return;
+        }
+        const snapped = snapPlacePoint(world, doc.objects, snapEnabled, gridSize, 8 / zoom).point;
+        if (plugin.canAppendPathPoint && !plugin.canAppendPathPoint(points, snapped)) {
+          useToastStore.getState().showToast('辺が交差する位置には頂点を置けません', 'error');
+          return;
+        }
+        setPath([...points, snapped]);
+        setPathCursor(snapped);
+        return;
+      }
+
       // pick-segments: 線分を2つクリックして生成(角度マーク)
       if (plugin.placement === 'pick-segments') {
         const hit = (e.target as Element).closest('[data-object-id]');
@@ -1478,14 +1621,17 @@ export function CanvasStage() {
       }
 
       const position = snapEnabled ? snapPoint(world, gridSize) : world;
-      if (plugin.placement === 'drag-line' && plugin.createFromDrag) {
-        // ドラッグで始点→終点を決める。確定はpointerupで行う
-        dragRef.current = { mode: 'place-line', plugin, start: position };
-        setPreview({ plugin, ...plugin.createFromDrag(position, position) });
-      } else if (plugin.placement === 'drag-rect' && plugin.createFromDrag) {
-        // ドラッグで枠(矩形)の大きさを決める。確定はpointerupで行う
-        dragRef.current = { mode: 'place-rect', plugin, start: position };
-        setPreview({ plugin, ...plugin.createFromDrag(position, position) });
+      if (
+        (plugin.placement === 'drag-line' || plugin.placement === 'drag-rect') &&
+        plugin.createFromDrag
+      ) {
+        // ドラッグで始点→終点(線分の端点・枠の対角)を決める。確定はpointerupで行う。
+        // 始点はグリッドだけでなく他図形の頂点・辺へも吸着させる(端点への接続)
+        const snapped = snapPlacePoint(world, doc.objects, snapEnabled, gridSize, 8 / zoom);
+        const mode = plugin.placement === 'drag-line' ? 'place-line' : 'place-rect';
+        dragRef.current = { mode, plugin, start: snapped.point };
+        setGuides({ marker: snapped.marker, vertex: snapped.vertex });
+        setPreview({ plugin, ...plugin.createFromDrag(snapped.point, snapped.point) });
       } else {
         const created = createSceneObject(plugin, position, doc.nextZIndex);
         // 左上基準の配置(用紙枠など): クリック点を図形の左上角に合わせる
@@ -1638,16 +1784,19 @@ export function CanvasStage() {
             moved: false,
           };
         } else if (handleKind.startsWith('part:')) {
-          // プラグイン定義のパーツハンドル(グラフの原点ハンドルなど)
+          // プラグイン定義のパーツハンドル(グラフの原点ハンドル・平行四辺形の頂点など)
           if (!obj.locked && plugin.movePart) {
+            const partId = handleKind.slice('part:'.length);
             dragRef.current = {
               mode: 'partDrag',
               id: obj.id,
-              partId: handleKind.slice('part:'.length),
+              partId,
               before: obj.transform,
               beforeProps: obj.props,
               plugin,
               startWorld: world,
+              // 頂点・辺ハンドルは snapLocal を基準に端点と同じ吸着を効かせる
+              snapLocal: plugin.getParts?.(obj.props).find((p) => p.id === partId)?.snapLocal ?? null,
               moved: false,
             };
           }
@@ -1813,6 +1962,20 @@ export function CanvasStage() {
     }
     const drag = dragRef.current;
     if (!drag) {
+      // click-path 配置中はドラッグしないので、ここでラバーバンドの先端を追う
+      if (pathPointsRef.current.length > 0) {
+        const { snapEnabled, zoom, snapStep } = useViewportStore.getState();
+        const world = worldFromEvent(e);
+        const snapped = snapPlacePoint(
+          world,
+          useDocumentStore.getState().objects,
+          snapEnabled,
+          snapStep(),
+          8 / zoom,
+        );
+        setPathCursor(snapped.point);
+        setGuides({ marker: snapped.marker, vertex: snapped.vertex });
+      }
       updateHover(e);
       return;
     }
@@ -1856,12 +2019,17 @@ export function CanvasStage() {
         movingBefore: drag.before,
         snapEnabled,
         gridSize,
+        // 移動側の頂点が他図形の頂点へ届いたらぴったり重ねる(端点同士の接続)
+        objects: doc.objects,
+        registry: pluginRegistry,
+        threshold: 8 / zoom,
       });
       const transforms: Record<string, Transform> = {};
       for (const [id, t] of Object.entries(drag.before)) {
         transforms[id] = { ...t, x: t.x + snapped.dx, y: t.y + snapped.dy };
       }
       doc.setTransformsTransient(transforms);
+      setGuides({ marker: snapped.marker, vertex: !!snapped.marker });
       drag.moved = true;
       return;
     }
@@ -1997,7 +2165,7 @@ export function CanvasStage() {
         props: res.props,
         ...(refs ? { refs } : {}),
       });
-      setGuides({ marker: snapped.marker });
+      setGuides({ marker: snapped.marker, vertex: snapped.vertex });
       drag.moved = true;
       return;
     }
@@ -2031,7 +2199,7 @@ export function CanvasStage() {
       const b = drag.end === 1 ? target : anchor;
       const res = drag.plugin.setFromEndpoints(drag.beforeProps, a, b);
       doc.setObjectTransient(drag.id, { transform: res.transform, props: res.props });
-      setGuides({ marker: snapped.marker });
+      setGuides({ marker: snapped.marker, vertex: snapped.vertex });
       drag.moved = true;
       return;
     }
@@ -2063,7 +2231,7 @@ export function CanvasStage() {
       const b = drag.end === 1 ? target : anchor;
       const res = drag.plugin.setFromEndpoints(drag.beforeProps, a, b);
       doc.setObjectTransient(drag.id, { transform: res.transform, props: res.props });
-      setGuides({ marker: snapped.marker });
+      setGuides({ marker: snapped.marker, vertex: snapped.vertex });
       drag.moved = true;
       return;
     }
@@ -2084,7 +2252,7 @@ export function CanvasStage() {
       const b = drag.end === 1 ? snapped.point : worldEps[1];
       const res = drag.plugin.setFromEndpoints(drag.beforeProps, a, b);
       doc.setObjectTransient(drag.id, { transform: res.transform, props: res.props });
-      setGuides({ marker: snapped.marker });
+      setGuides({ marker: snapped.marker, vertex: snapped.vertex });
       drag.moved = true;
       return;
     }
@@ -2114,7 +2282,7 @@ export function CanvasStage() {
         threshold: 8 / zoom,
       });
       setRotatePivot({ id: drag.id, world: snapped.point });
-      setGuides({ marker: snapped.marker });
+      setGuides({ marker: snapped.marker, vertex: snapped.vertex });
       drag.moved = true;
       return;
     }
@@ -2145,7 +2313,7 @@ export function CanvasStage() {
           if (proj) {
             const newRef: ObjectRef = { role: 'coincident', localAnchor: co.localAnchor, ...proj.bind };
             solveCoincidentDrag(drag, newRef);
-            setGuides({ marker: proj.point });
+            setGuides({ marker: proj.point, vertex: proj.bind.kind === 'point' });
           }
         } else {
           // 自由基準点(対象なし): 従来どおり吸着すれば接続、離せば自由座標
@@ -2159,7 +2327,7 @@ export function CanvasStage() {
             threshold: 8 / zoom,
           });
           solveCoincidentDrag(drag, makeCoincidentRef(co, snapped));
-          setGuides({ marker: snapped.marker });
+          setGuides({ marker: snapped.marker, vertex: snapped.vertex });
         }
       }
       drag.moved = true;
@@ -2188,14 +2356,33 @@ export function CanvasStage() {
     }
 
     if (drag.mode === 'partDrag' && drag.plugin.movePart) {
-      const props = drag.plugin.movePart(
+      let point = world;
+      if (drag.snapLocal) {
+        // 掴んだ位置と基準点(頂点・辺の端点)のズレを補正して吸着させ、
+        // 同じズレを戻した点を渡す=プラグインが差分で動かすと基準点が吸着先へ乗る
+        const anchor = localToWorld(drag.snapLocal, drag.before);
+        const off = { x: anchor.x - drag.startWorld.x, y: anchor.y - drag.startWorld.y };
+        const snapped = snapEndpoint({
+          point: { x: world.x + off.x, y: world.y + off.y },
+          objects: doc.objects,
+          registry: pluginRegistry,
+          excludeIds: new Set([drag.id]),
+          snapEnabled,
+          gridSize,
+          threshold: 8 / zoom,
+        });
+        point = { x: snapped.point.x - off.x, y: snapped.point.y - off.y };
+        setGuides({ marker: snapped.marker, vertex: snapped.vertex });
+      }
+      const result = drag.plugin.movePart(
         drag.beforeProps,
         drag.before,
         drag.partId,
         drag.startWorld,
-        world,
+        point,
       );
-      doc.setObjectTransient(drag.id, { props });
+      // 頂点ドラッグのように位置・回転まで変わるプラグインは { props, transform } を返す
+      doc.setObjectTransient(drag.id, partDragResult(result));
       drag.moved = true;
       return;
     }
@@ -2229,8 +2416,9 @@ export function CanvasStage() {
     }
 
     if ((drag.mode === 'place-line' || drag.mode === 'place-rect') && drag.plugin.createFromDrag) {
-      const end = snapEnabled ? snapPoint(world, gridSize) : world;
-      setPreview({ plugin: drag.plugin, ...drag.plugin.createFromDrag(drag.start, end) });
+      const snapped = snapPlacePoint(world, doc.objects, snapEnabled, gridSize, 8 / zoom);
+      setGuides({ marker: snapped.marker, vertex: snapped.vertex });
+      setPreview({ plugin: drag.plugin, ...drag.plugin.createFromDrag(drag.start, snapped.point) });
     }
   };
 
@@ -2471,10 +2659,10 @@ export function CanvasStage() {
       (drag.mode === 'place-line' || drag.mode === 'place-rect') &&
       drag.plugin.createFromDrag
     ) {
-      const { snapEnabled, snapStep } = useViewportStore.getState();
+      const { snapEnabled, zoom: z, snapStep } = useViewportStore.getState();
       const gridSize = snapStep();
       const world = worldFromEvent(e);
-      const end = snapEnabled ? snapPoint(world, gridSize) : world;
+      const end = snapPlacePoint(world, doc.objects, snapEnabled, gridSize, 8 / z).point;
       const created = drag.plugin.createFromDrag(drag.start, end);
       const obj = {
         ...createSceneObject(drag.plugin, created.transform, doc.nextZIndex),
@@ -2614,15 +2802,53 @@ export function CanvasStage() {
               strokeDasharray={`${4 / zoom} ${3 / zoom}`}
             />
           )}
-          {guides.marker && (
-            <circle
-              cx={guides.marker.x}
-              cy={guides.marker.y}
-              r={5 / zoom}
-              fill="none"
-              stroke="#e0457b"
-              strokeWidth={1.5 / zoom}
-            />
+          {guides.marker &&
+            (guides.vertex ? (
+              // 頂点(端点・角・中心)への吸着は四角マーカー(辺・円周への吸着=丸と見分ける)
+              <rect
+                x={guides.marker.x - 4 / zoom}
+                y={guides.marker.y - 4 / zoom}
+                width={8 / zoom}
+                height={8 / zoom}
+                fill="rgba(224, 69, 123, 0.25)"
+                stroke="#e0457b"
+                strokeWidth={1.5 / zoom}
+              />
+            ) : (
+              <circle
+                cx={guides.marker.x}
+                cy={guides.marker.y}
+                r={5 / zoom}
+                fill="none"
+                stroke="#e0457b"
+                strokeWidth={1.5 / zoom}
+              />
+            ))}
+          {pathPoints.length > 0 && (
+            <g>
+              {/* 確定済みの頂点+ポインタまでのラバーバンド。3頂点以上なら閉じた面も薄く見せる */}
+              <polygon
+                points={[...pathPoints, ...(pathCursor ? [pathCursor] : [])]
+                  .map((p) => `${p.x},${p.y}`)
+                  .join(' ')}
+                fill={pathPoints.length >= 2 ? 'rgba(224,69,123,0.08)' : 'none'}
+                stroke="#e0457b"
+                strokeWidth={1.5 / zoom}
+                strokeDasharray={`${4 / zoom} ${3 / zoom}`}
+                strokeLinejoin="round"
+              />
+              {pathPoints.map((p, i) => (
+                <circle
+                  key={i}
+                  cx={p.x}
+                  cy={p.y}
+                  r={(i === 0 ? 5 : 3) / zoom}
+                  fill={i === 0 ? '#fff' : '#e0457b'}
+                  stroke="#e0457b"
+                  strokeWidth={1.5 / zoom}
+                />
+              ))}
+            </g>
           )}
           {segPicks.map((p, i) => (
             <line

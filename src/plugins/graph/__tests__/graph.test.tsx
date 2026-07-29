@@ -1,6 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { partDragResult } from '../../../core/plugin';
 import { identityTransform } from '../../../core/types';
 import { graphPlugin } from '../graph';
 import {
@@ -72,13 +73,9 @@ describe('graphPlugin のフック', () => {
 
   it('movePart(origin)は表示範囲をパンする(スパン不変)', () => {
     // 原点を右へ32px(=1目盛り) → 範囲は左へ1シフト
-    const next = graphPlugin.movePart!(
-      makeProps(),
-      identityTransform(),
-      'origin',
-      { x: 0, y: 0 },
-      { x: 32, y: 0 },
-    );
+    const next = partDragResult(
+      graphPlugin.movePart!(makeProps(), identityTransform(), 'origin', { x: 0, y: 0 }, { x: 32, y: 0 }),
+    ).props;
     expect(next.xMin).toBeCloseTo(-6);
     expect(next.xMax).toBeCloseTo(4);
     expect(next.yMin).toBeCloseTo(-5);

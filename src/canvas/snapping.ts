@@ -11,14 +11,27 @@ import {
   snapValue,
   worldToLocal,
 } from '../core/geometry';
-import type { EllipseGeometry } from '../core/plugin';
+import type { AnyPlugin, EllipseGeometry } from '../core/plugin';
 import type { PluginRegistry } from '../core/registry';
 import type { ObjectRef, Point, Transform } from '../core/types';
 
 export interface MoveSnapResult {
   dx: number;
   dy: number;
+  /** 頂点同士が吸着した位置(マーカー表示用) */
+  marker?: Point;
 }
+
+/**
+ * 吸着候補の優先度。頂点(端点・角・中心)は辺・円周より優先する。
+ * 端点の近くでは辺への垂線の足の方が常に近くなるため、距離だけで選ぶと
+ * 「端点同士をぴったり合わせる」ができない(辺の上に少しずれて乗る)。
+ */
+const RANK_CURVE = 0;
+const RANK_VERTEX = 1;
+
+/** 頂点が辺上/円周上に乗っているとみなす許容誤差(同じtransformで算出するので誤差は浮動小数のみ) */
+const ON_GEOMETRY_EPS = 1e-6;
 
 /** オブジェクトのスナップ点をワールド座標で列挙する */
 function worldSnapPoints(
@@ -68,14 +81,51 @@ export interface EndpointSnapResult {
   point: Point;
   /** オブジェクトへ吸着したときの位置(マーカー表示用) */
   marker?: Point;
+  /** 吸着先が頂点(端点・角・中心)ならtrue(マーカー表示を変える) */
+  vertex?: boolean;
   /** 吸着相手(線分/円)。長さマークなどの追従バインドに使う */
   attach?: EndpointAttach;
 }
 
 /**
- * 端点ドラッグのスナップ。他オブジェクトのスナップ点・線分上の最近点・円周上の最近点を候補にし、
- * グリッド点より近ければオブジェクトへ吸着する(2次元の真の最近点。軸分解しない)。
- * 吸着相手が線分/円なら attach に紐付け情報を返す。
+ * 頂点へ吸着したときの追従バインド相手。長さマークなどは辺・円周に紐付くので、
+ * その頂点が辺上/円周上に乗っていれば同じ相手を返す
+ * (頂点優先にしても「線の端点へ吸着してバインドする」操作が失われないように)。
+ */
+function vertexAttach(
+  plugin: AnyPlugin,
+  props: unknown,
+  transform: Transform,
+  targetId: string,
+  vertex: Point,
+): EndpointAttach | undefined {
+  const segs = plugin.getSegments?.(props);
+  if (segs) {
+    for (let i = 0; i < segs.length; i++) {
+      const a = localToWorld(segs[i][0], transform);
+      const b = localToWorld(segs[i][1], transform);
+      if (distance(vertex, nearestPointOnSegment(vertex, a, b)) < ON_GEOMETRY_EPS) {
+        return { targetId, kind: 'segment', segIndex: i };
+      }
+    }
+  }
+  const circle = plugin.getCircle?.(props);
+  if (circle) {
+    const center = localToWorld(circle.center, transform);
+    const rw = Math.abs(circle.radius * transform.scaleX);
+    if (Math.abs(distance(vertex, center) - rw) < ON_GEOMETRY_EPS) {
+      const worldAngle = angleOfVector({ x: vertex.x - center.x, y: vertex.y - center.y });
+      return { targetId, kind: 'circle', t: worldAngle - transform.rotation };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * 端点ドラッグのスナップ。他オブジェクトのスナップ点(頂点)・線分上の最近点・円周上の最近点を
+ * 候補にし、グリッド点より近ければオブジェクトへ吸着する(2次元の真の最近点。軸分解しない)。
+ * **頂点はしきい値内なら辺・円周・グリッドより優先**する(端点同士をぴったり合わせるため)。
+ * 吸着相手が線分/円なら attach に紐付け情報を返す(頂点でもその辺・円周を相手にする)。
  */
 export function snapEndpoint(params: {
   point: Point;
@@ -93,13 +143,16 @@ export function snapEndpoint(params: {
   if (!snapEnabled) return { point: { ...point } };
 
   // クロージャからの代入で外側変数がnarrowされないよう、ホルダ経由で保持する
-  const holder: { best: { p: Point; dist: number; attach?: EndpointAttach } | null } = { best: null };
-  // attach付き候補は同距離でも吸着相手を優先するため <= で上書き、無印は < のみ
-  const consider = (p: Point, attach?: EndpointAttach) => {
+  const holder: {
+    best: { p: Point; dist: number; rank: number; attach?: EndpointAttach } | null;
+  } = { best: null };
+  // 優先度が高い候補(頂点)は遠くても勝つ。同順位では近い方、同距離なら attach 付きを優先する
+  const consider = (p: Point, rank: number, attach?: EndpointAttach) => {
     const d = distance(point, p);
     if (d > threshold) return;
-    if (!holder.best || d < holder.best.dist || (attach && d <= holder.best.dist)) {
-      holder.best = { p, dist: d, attach };
+    const b = holder.best;
+    if (!b || rank > b.rank || (rank === b.rank && (d < b.dist || (attach && d <= b.dist)))) {
+      holder.best = { p, dist: d, rank, attach };
     }
   };
 
@@ -112,7 +165,11 @@ export function snapEndpoint(params: {
       segs.forEach((seg, segIndex) => {
         const a = localToWorld(seg[0], obj.transform);
         const b = localToWorld(seg[1], obj.transform);
-        consider(nearestPointOnSegment(point, a, b), { targetId: id, kind: 'segment', segIndex });
+        consider(nearestPointOnSegment(point, a, b), RANK_CURVE, {
+          targetId: id,
+          kind: 'segment',
+          segIndex,
+        });
       });
     }
     // 円周候補(ローカル角度 t を記録)
@@ -126,26 +183,34 @@ export function snapEndpoint(params: {
         x: center.x + rw * (dir.x / (Math.hypot(dir.x, dir.y) || 1)),
         y: center.y + rw * (dir.y / (Math.hypot(dir.x, dir.y) || 1)),
       };
-      consider(edge, { targetId: id, kind: 'circle', t: worldAngle - obj.transform.rotation });
+      consider(edge, RANK_CURVE, { targetId: id, kind: 'circle', t: worldAngle - obj.transform.rotation });
     }
     // 楕円周候補(位置のみ。楕円は半径が一意でなく長さマーク等の吸着相手にならないため attach なし)
     const ellipse = plugin?.getEllipse?.(obj.props);
-    if (ellipse) consider(ellipseCurveCandidate(ellipse, obj.transform, point).point);
-    // 通常のスナップ点(端点・中心など。attachなし)
-    for (const p of worldSnapPoints(objects, registry, id, obj.transform)) consider(p);
+    if (ellipse) consider(ellipseCurveCandidate(ellipse, obj.transform, point).point, RANK_CURVE);
+    // 頂点(端点・角・中心)。辺・円周より優先し、乗っている辺・円周を attach にする
+    if (plugin) {
+      for (const p of worldSnapPoints(objects, registry, id, obj.transform)) {
+        consider(p, RANK_VERTEX, vertexAttach(plugin, obj.props, obj.transform, id, p));
+      }
+    }
   }
 
+  const { best } = holder;
   if (!gridEnabled) {
-    const { best } = holder;
-    if (best) return { point: best.p, marker: best.p, attach: best.attach };
+    if (best) {
+      return { point: best.p, marker: best.p, vertex: best.rank === RANK_VERTEX, attach: best.attach };
+    }
     return { point: { ...point } };
   }
 
   const gridPt = snapPoint(point, gridSize);
   const gridDist = distance(point, gridPt);
-  const { best } = holder;
-  // オブジェクト候補がグリッド点以下の距離なら、グリッド外でもオブジェクトへ吸着する
-  if (best && best.dist <= gridDist) return { point: best.p, marker: best.p, attach: best.attach };
+  // 頂点はしきい値内なら常にグリッドより優先(端点同士を厳密に合わせる)。
+  // 辺・円周はグリッド点以下の距離のときだけ吸着する
+  if (best && (best.rank === RANK_VERTEX || best.dist <= gridDist)) {
+    return { point: best.p, marker: best.p, vertex: best.rank === RANK_VERTEX, attach: best.attach };
+  }
   return { point: gridPt };
 }
 
@@ -160,6 +225,8 @@ export interface AnchorSnapResult {
   point: Point;
   /** オブジェクトへ吸着したときの位置(マーカー表示用) */
   marker?: Point;
+  /** 吸着先が頂点(端点・角・中心)ならtrue(マーカー表示を変える) */
+  vertex?: boolean;
   /** 吸着先(あれば接続。無ければ自由座標=point) */
   bind?: AnchorBind;
 }
@@ -168,7 +235,8 @@ export interface AnchorSnapResult {
  * 一致点(coincidentの基準点)ドラッグのスナップ。
  * 他オブジェクトのスナップ点(角・端点・中心)・線分上の最近点・円周上の最近点を候補にし、
  * グリッド点より近ければオブジェクトへ吸着して接続情報(bind)を返す。
- * スナップ点(角・中心)は同距離なら線分/円より優先する(離散点の方が意味を持つ)。
+ * スナップ点(角・中心)は同距離なら線分/円より優先し、しきい値内ならグリッドより優先する
+ * (離散点の方が意味を持つ=頂点へ確実に接続させる)。
  * スナップ無効なら生の点(自由座標)を返す。
  */
 export function snapAnchorPoint(params: {
@@ -231,7 +299,10 @@ export function snapAnchorPoint(params: {
   const gridPt = snapPoint(point, gridSize);
   const gridDist = distance(point, gridPt);
   const { best } = holder;
-  if (best && best.dist <= gridDist) return { point: best.p, marker: best.p, bind: best.bind };
+  // 頂点(離散スナップ点)はしきい値内なら常にグリッドより優先する(頂点へ確実に接続させる)
+  if (best && (best.bind.kind === 'point' || best.dist <= gridDist)) {
+    return { point: best.p, marker: best.p, vertex: best.bind.kind === 'point', bind: best.bind };
+  }
   return { point: gridPt };
 }
 
@@ -322,8 +393,54 @@ export function snapWorldPoint(params: {
 }
 
 /**
- * 移動ドラッグのスナップ補正。先頭オブジェクトの位置を基準にグリッドへスナップし、
- * 相対配置を保ったまま移動量を全選択オブジェクトへ一様に適用する。
+ * 移動中のオブジェクトの頂点が、他オブジェクトの頂点の近くへ来ていれば
+ * ぴったり重ねる移動量を返す(最も近い頂点ペアを採用)。近い組が無ければ null。
+ */
+function snapMovingVertices(params: {
+  rawDx: number;
+  rawDy: number;
+  movingBefore: Record<string, Transform>;
+  objects: SceneObjects;
+  registry: PluginRegistry;
+  threshold: number;
+}): MoveSnapResult | null {
+  const { rawDx, rawDy, movingBefore, objects, registry, threshold } = params;
+  // 移動後の頂点(ワールド)
+  const moved: Point[] = [];
+  for (const [id, before] of Object.entries(movingBefore)) {
+    const after = { ...before, x: before.x + rawDx, y: before.y + rawDy };
+    moved.push(...worldSnapPoints(objects, registry, id, after));
+  }
+  if (!moved.length) return null;
+
+  const holder: { best: { dx: number; dy: number; dist: number; marker: Point } | null } = {
+    best: null,
+  };
+  for (const [id, obj] of Object.entries(objects)) {
+    if (movingBefore[id] || !obj.visible) continue;
+    for (const target of worldSnapPoints(objects, registry, id, obj.transform)) {
+      for (const m of moved) {
+        const d = distance(m, target);
+        if (d > threshold) continue;
+        if (!holder.best || d < holder.best.dist) {
+          holder.best = {
+            dx: rawDx + (target.x - m.x),
+            dy: rawDy + (target.y - m.y),
+            dist: d,
+            marker: target,
+          };
+        }
+      }
+    }
+  }
+  const { best } = holder;
+  return best ? { dx: best.dx, dy: best.dy, marker: best.marker } : null;
+}
+
+/**
+ * 移動ドラッグのスナップ補正。相対配置を保ったまま移動量を全選択オブジェクトへ一様に適用する。
+ * objects/registry/threshold を渡すと、まず移動側の頂点と他オブジェクトの頂点が重なる補正を試し
+ * (端点同士をぴったり合わせる)、近い頂点ペアが無ければ先頭オブジェクト基準のグリッドへ丸める。
  */
 export function snapMovement(params: {
   rawDx: number;
@@ -331,9 +448,18 @@ export function snapMovement(params: {
   movingBefore: Record<string, Transform>;
   snapEnabled: boolean;
   gridSize: number;
+  /** 頂点スナップ用(省略時はグリッドのみ) */
+  objects?: SceneObjects;
+  registry?: PluginRegistry;
+  threshold?: number;
 }): MoveSnapResult {
-  const { rawDx, rawDy, movingBefore, snapEnabled, gridSize } = params;
+  const { rawDx, rawDy, movingBefore, snapEnabled, gridSize, objects, registry, threshold } = params;
   if (!snapEnabled) return { dx: rawDx, dy: rawDy };
+
+  if (objects && registry && threshold != null) {
+    const vertex = snapMovingVertices({ rawDx, rawDy, movingBefore, objects, registry, threshold });
+    if (vertex) return vertex;
+  }
 
   const result: MoveSnapResult = { dx: rawDx, dy: rawDy };
   // グリッドスナップは先頭オブジェクトの位置を基準に、相対配置を保ったまま補正する

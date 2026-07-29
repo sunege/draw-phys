@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { AnyPlugin } from '../../../core/plugin';
+import { partDragResult, type AnyPlugin } from '../../../core/plugin';
 import { pluginRegistry } from '../../../core/registry';
 import { identityTransform } from '../../../core/types';
 import { registerStandardPlugins } from '../../index';
@@ -51,21 +51,13 @@ describe('熱力学プラグイン スモークテスト', () => {
 
   it('ピストンハンドルのドラッグで pistonPos が動き、内腔にクランプされる', () => {
     const t = identityTransform();
-    const moved = cylinderPlugin.movePart!(
-      cylinderPlugin.defaultProps,
-      t,
-      'piston',
-      { x: 0, y: 0 },
-      { x: 30, y: 0 },
-    );
+    const moved = partDragResult(
+      cylinderPlugin.movePart!(cylinderPlugin.defaultProps, t, 'piston', { x: 0, y: 0 }, { x: 30, y: 0 }),
+    ).props;
     expect(moved.pistonPos).toBe(130);
-    const clamped = cylinderPlugin.movePart!(
-      cylinderPlugin.defaultProps,
-      t,
-      'piston',
-      { x: 0, y: 0 },
-      { x: 1000, y: 0 },
-    );
+    const clamped = partDragResult(
+      cylinderPlugin.movePart!(cylinderPlugin.defaultProps, t, 'piston', { x: 0, y: 0 }, { x: 1000, y: 0 }),
+    ).props;
     // length 160 - ピストン厚 10
     expect(clamped.pistonPos).toBe(150);
   });
@@ -73,13 +65,9 @@ describe('熱力学プラグイン スモークテスト', () => {
   it('回転したシリンダーでもハンドルのドラッグがローカルx方向で解釈される', () => {
     const t = { ...identityTransform(), rotation: 90 };
     // 画面下(+y)へのドラッグ = ローカル+x(開口側)
-    const moved = cylinderPlugin.movePart!(
-      cylinderPlugin.defaultProps,
-      t,
-      'piston',
-      { x: 0, y: 0 },
-      { x: 0, y: 20 },
-    );
+    const moved = partDragResult(
+      cylinderPlugin.movePart!(cylinderPlugin.defaultProps, t, 'piston', { x: 0, y: 0 }, { x: 0, y: 20 }),
+    ).props;
     expect(moved.pistonPos).toBeCloseTo(120);
   });
 

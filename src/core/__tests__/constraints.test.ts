@@ -80,8 +80,25 @@ const ellipsePlugin = makeTestPlugin({
   getEllipse: (p) => ({ center: { x: 0, y: 0 }, radiusX: p.width / 2, radiusY: p.height / 2 }),
 });
 
+// 辺を複数持つ対象(多角形相当)。selfSegIndex で「自分のどの辺を揃えるか」を選ぶ検証用。
+// 辺0=上(局所0°)、辺1=右(90°)、辺2=下(180°)、辺3=左(-90°)
+const polyPlugin = makeTestPlugin({
+  id: 'test.poly',
+  getSegments: (p) => {
+    const hw = p.width / 2;
+    const hh = p.height / 2;
+    return [
+      [{ x: -hw, y: -hh }, { x: hw, y: -hh }],
+      [{ x: hw, y: -hh }, { x: hw, y: hh }],
+      [{ x: hw, y: hh }, { x: -hw, y: hh }],
+      [{ x: -hw, y: hh }, { x: -hw, y: -hh }],
+    ];
+  },
+});
+
 const registry = new PluginRegistry();
 registry.register(segPlugin);
+registry.register(polyPlugin);
 registry.register(depPlugin);
 registry.register(snapPlugin);
 registry.register(endpointPlugin);
@@ -276,6 +293,52 @@ describe('findRotationLock', () => {
     expect(findRotationLock([perp])?.role).toBe('perpendicular');
     expect(findRotationLock([{ role: 'coincident', targetId: 's', kind: 'point' }])).toBeUndefined();
     expect(findRotationLock(undefined)).toBeUndefined();
+  });
+});
+
+describe('辺を指定した平行/垂直拘束(selfSegIndex)', () => {
+  it('selfSegIndexの辺が基準線分と平行になるよう全体を回す', () => {
+    const objects: SceneObjects = {
+      // 基準: 30°傾いた線分
+      s: obj('s', 'test.seg', 0, 0, {
+        transform: { x: 0, y: 0, rotation: 30, scaleX: 1, scaleY: 1 },
+      }),
+      // 依存: 右辺(局所90°)を基準に揃える → 全体は 30-90 = -60°
+      d: obj('d', 'test.poly', 200, 200, {
+        refs: [
+          { role: 'parallel', targetId: 's', kind: 'segment', segIndex: 0, t: 0.5, angleOffset: 0, selfSegIndex: 1 },
+        ],
+      }),
+    };
+    const solved = solveConstraints(objects, registry);
+    expect(solved.d.transform.rotation).toBeCloseTo(-60);
+  });
+
+  it('selfSegIndexが無ければ従来どおりローカルX軸(=オブジェクトの向き)を揃える', () => {
+    const objects: SceneObjects = {
+      s: obj('s', 'test.seg', 0, 0, {
+        transform: { x: 0, y: 0, rotation: 30, scaleX: 1, scaleY: 1 },
+      }),
+      d: obj('d', 'test.poly', 200, 200, {
+        refs: [{ role: 'parallel', targetId: 's', kind: 'segment', segIndex: 0, t: 0.5, angleOffset: 0 }],
+      }),
+    };
+    const solved = solveConstraints(objects, registry);
+    expect(solved.d.transform.rotation).toBeCloseTo(30);
+  });
+
+  it('垂直も同じ辺基準で解ける(辺1を基準に垂直)', () => {
+    const objects: SceneObjects = {
+      s: obj('s', 'test.seg', 0, 0),
+      d: obj('d', 'test.poly', 0, 0, {
+        refs: [
+          { role: 'perpendicular', targetId: 's', kind: 'segment', segIndex: 0, t: 0.5, angleOffset: 90, selfSegIndex: 1 },
+        ],
+      }),
+    };
+    const solved = solveConstraints(objects, registry);
+    // 基準0° + 90 - 辺1の局所角90 = 0°(右辺が縦=基準に垂直)
+    expect(solved.d.transform.rotation).toBeCloseTo(0);
   });
 });
 

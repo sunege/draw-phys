@@ -12,7 +12,9 @@ import { helixPlugin } from './basic/helix';
 import { latexPlugin } from './basic/latex';
 import { latexDocPlugin } from './basic/latexDoc';
 import { linePlugin } from './basic/line';
+import { parallelogramPlugin } from './basic/parallelogram';
 import { pointPlugin } from './basic/point';
+import { polygonPlugin } from './basic/polygon';
 import { rectPlugin } from './basic/rect';
 import { textPlugin } from './basic/text';
 import { graphPlugin } from './graph/graph';
@@ -73,6 +75,8 @@ export function registerStandardPlugins(): void {
   pluginRegistry.register(pointPlugin);
   pluginRegistry.register(circlePlugin);
   pluginRegistry.register(rectPlugin);
+  pluginRegistry.register(parallelogramPlugin);
+  pluginRegistry.register(polygonPlugin);
   pluginRegistry.register(arcPlugin);
   pluginRegistry.register(ellipsePlugin);
   pluginRegistry.register(ellipseArcPlugin);

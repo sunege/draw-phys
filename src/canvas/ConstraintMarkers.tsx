@@ -4,6 +4,7 @@ import {
   findTangentAnchor,
   resolveCoincidentAnchor,
   resolveRef,
+  selfSegmentAngle,
 } from '../core/constraints';
 import type { SceneObjects } from '../core/document';
 import { angleOfVector, localToWorld } from '../core/geometry';
@@ -329,11 +330,22 @@ export function ConstraintMarkers() {
 
     const rotLock = findRotationLock(obj.refs);
     if (rotLock) {
-      // 自オブジェクト側: 局所バウンディング上辺の中点(=局所x方向=向きのエッジ)
+      // 自オブジェクト側: selfSegIndex があればその辺の中点、無ければ
+      // 局所バウンディング上辺の中点(=局所x方向=向きのエッジ)
+      const selfSeg =
+        rotLock.selfSegIndex != null
+          ? plugin.getSegments?.(obj.props)?.[rotLock.selfSegIndex]
+          : undefined;
       const b = plugin.getBounds(obj.props);
-      const objAt = localToWorld({ x: b.x + b.width / 2, y: b.y }, obj.transform);
+      const localAt = selfSeg
+        ? { x: (selfSeg[0].x + selfSeg[1].x) / 2, y: (selfSeg[0].y + selfSeg[1].y) / 2 }
+        : { x: b.x + b.width / 2, y: b.y };
+      const objAngle =
+        obj.transform.rotation +
+        selfSegmentAngle(plugin, obj.props, rotLock);
+      const objAt = localToWorld(localAt, obj.transform);
       // 辺の途中に乗るので、辺と垂直方向へ少しずらして線に被らないようにする
-      const objPos = offsetAlong(objAt, obj.transform.rotation + 90, OFFSET_LINE / zoom);
+      const objPos = offsetAlong(objAt, objAngle + 90, OFFSET_LINE / zoom);
       const rm = referenceMarker(rotLock, objects);
       const rmPos = rm ? offsetAlong(rm.at, rm.angle + 90, OFFSET_LINE / zoom) : null;
       const issue = issueFor(obj.id, obj.refs.indexOf(rotLock));
@@ -342,7 +354,7 @@ export function ConstraintMarkers() {
         <Glyph
           key={`${obj.id}-r`}
           at={objPos}
-          angle={obj.transform.rotation}
+          angle={objAngle}
           zoom={zoom}
           objectId={obj.id}
           error={!!issue}

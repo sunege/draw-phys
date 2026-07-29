@@ -17,8 +17,12 @@ export type PropertyField =
   | (PropertyFieldBase & { type: 'boolean' })
   | (PropertyFieldBase & { type: 'select'; options: { value: string; label: string }[] });
 
-/** 配置操作の種別。'pick-segments' は既存の線分オブジェクトを2つクリックして生成する */
-export type PlacementMode = 'click' | 'drag-rect' | 'drag-line' | 'pick-segments';
+/**
+ * 配置操作の種別。
+ * - 'pick-segments' … 既存の線分オブジェクトを2つクリックして生成する
+ * - 'click-path' … 頂点を順にクリックし、最初の頂点をクリック(またはEnter)で閉じて生成する
+ */
+export type PlacementMode = 'click' | 'drag-rect' | 'drag-line' | 'pick-segments' | 'click-path';
 
 /** 円・円弧の幾何情報(ローカル座標)。拘束・測定の相手として使う */
 export interface CircleGeometry {
@@ -117,6 +121,24 @@ export interface PluginCapabilities {
    * ON のとき色付き点線で描かれ書き出しから除外される(線・円が対象)。
    */
   construction?: boolean;
+}
+
+/** 単一選択中に出す追加ドラッグハンドル(getParts) */
+export interface PartHandle {
+  id: string;
+  /** ハンドル位置(ローカル座標) */
+  local: Point;
+  title?: string;
+  /** ハンドルの形。'diamond' はスケールハンドル(白い正方形)と重なっても見分けられる */
+  shape?: 'circle' | 'diamond';
+  /**
+   * ドラッグ中にグリッド・他オブジェクトのスナップ点へ吸着させる基準点(ローカル座標)。
+   * 本体は「掴んだ位置とこの点のズレ」を補正してから吸着させ、その結果へ平行移動した
+   * 位置を toWorld としてプラグインへ渡す。つまり movePart 側が
+   * 「toWorld - fromWorld」だけ動かせば、この基準点がぴったり吸着先へ乗る
+   * (頂点ハンドル=その頂点、辺ハンドル=辺の端点、を指定する)。
+   */
+  snapLocal?: Point;
 }
 
 /** 端点編集(2端点をドラッグして形状を決める)を行う結果 */
@@ -231,15 +253,23 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
   moveLabel?(props: P, transform: Transform, fromWorld: Point, toWorld: Point): P;
   /**
    * 単一選択中に表示する追加ドラッグハンドル(ローカル座標)。
-   * グラフの原点ハンドルなど、端点編集に当てはまらない操作点に使う。
+   * グラフの原点ハンドル・平行四辺形の頂点など、端点編集に当てはまらない操作点に使う。
    * movePart とセットで定義する。
    */
-  getParts?(props: P): { id: string; local: Point; title?: string }[];
+  getParts?(props: P): PartHandle[];
   /**
    * パーツハンドルのドラッグ(moveLabelと同型)。ドラッグ開始時の props と
    * 開始点 fromWorld・現在点 toWorld から毎回新しい props を計算して返す。
+   * 頂点ドラッグのように位置・回転まで変わる場合は { props, transform } を返す
+   * (props だけを返せば transform は変更しない)。
    */
-  movePart?(props: P, transform: Transform, partId: string, fromWorld: Point, toWorld: Point): P;
+  movePart?(
+    props: P,
+    transform: Transform,
+    partId: string,
+    fromWorld: Point,
+    toWorld: Point,
+  ): P | EndpointEditResult<P>;
   /**
    * 矩形ズーム操作ツール(グラフ範囲)の受け口。ドラッグ矩形の対角2点
    * (ローカル座標)から新しい props を返す。無効な矩形(小さすぎる等)は null。
@@ -303,6 +333,21 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
    */
   createFromDrag?(start: Point, end: Point): { props: P; transform: Transform };
   /**
+   * click-path 配置時に、クリックで置いたワールド頂点列から props と transform を決める。
+   * placement が 'click-path' の場合は必須。頂点は閉じた順路(末尾→先頭で閉じる)で渡る。
+   */
+  createFromPath?(worldPoints: Point[]): { props: P; transform: Transform };
+  /**
+   * click-path 配置中に、次の頂点として点を追加できるか(自己交差の予防など)。
+   * false を返すとそのクリックは無視される。省略時は常に追加できる。
+   */
+  canAppendPathPoint?(worldPoints: Point[], next: Point): boolean;
+  /**
+   * click-path 配置中に、いま閉じられるか。false のあいだは最初の頂点をクリックしても
+   * 閉じない。省略時は3点以上あれば閉じられる。
+   */
+  canClosePath?(worldPoints: Point[]): boolean;
+  /**
    * pick-segments 配置時に、2つの線分ピックから props / transform / refs を決める。
    * placement が 'pick-segments' の場合は必須。
    * hostTrims を返すと、本体が生成と同じ履歴エントリ内で母線(線分)を接点まで詰める
@@ -337,6 +382,18 @@ export interface PhysicsObjectPlugin<P = Record<string, unknown>> {
    * このプラグインのオブジェクトが書き出し対象に含まれる場合のみ呼ばれる。
    */
   exportStyles?(): Promise<string>;
+}
+
+/**
+ * movePart の戻り値を props / transform へ正規化する。
+ * props だけを返したプラグイン(グラフ・シリンダー等)では transform は undefined。
+ */
+export function partDragResult<P>(
+  result: P | EndpointEditResult<P>,
+): { props: P; transform?: Transform } {
+  return result && typeof result === 'object' && 'props' in result && 'transform' in result
+    ? (result as EndpointEditResult<P>)
+    : { props: result as P };
 }
 
 /** レジストリ等で種類を問わずプラグインを扱うための型 */
