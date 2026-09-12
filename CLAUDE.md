@@ -67,7 +67,7 @@ npm test       # vitest run
 
 ### レイアウト・印刷・書き出し
 
-**用紙枠**(`layout.pageFrame`, `printFrame`): props実寸mm・回転不可。プリセット/向き`pageFrameMath.ts`、補助線(等分線・対角線, キャンバスのみ非印刷, スナップ有効)`pageGuides.ts`、ページ順は明示`pageNumber`(`initProps`で自動採番)。共有`src/core/pageFrames.ts`(`orderedPageFrames`)をpanel/書き出し/バッジ/ページ移動で共用。**画像**(`layout.image`)=srcをdata URLで持つ箱型(保存・書き出しそのまま)。**表**(`layout.table`, `tableMath.ts`)。
+**用紙枠**(`layout.pageFrame`, `printFrame`): props実寸mm・回転不可。プリセット/向き`pageFrameMath.ts`、補助線(等分線・対角線, キャンバスのみ非印刷, スナップ有効)`pageGuides.ts`、ページ順は明示`pageNumber`(`initProps`で自動採番)。共有`src/core/pageFrames.ts`(`orderedPageFrames`)をpanel/書き出し/バッジ/ページ移動で共用。**画像**(`layout.image`)=srcをdata URLで持つ箱型(保存・書き出しそのまま)。**表**(`layout.table`, `tableMath.ts`)はセル文字列を持つ箱型。セル内容は`latexDocParser.renderDocHtml`を共有し地の文+`$...$`を`foreignObject`で描く(`exportStyles`でKaTeXフォントを書き出しに同梱)。列幅/行高は`tableMeasure.ts`の隠し要素実測で「内容に合わせる」、内部の罫線は`getParts`/`movePart`のハンドルでドラッグ(`keepTopLeft`で左上を固定し以降の列・行を押し出す)。セル直接入力は`inlineEdit`+`TableCellEditor.tsx`(各セルに重ねたinput、Tab/Enterで移動、1編集セッション=履歴1エントリ)。初期フォーカスのセルは自分の`<g>`の`getScreenCTM()`で直前のpointerdownをローカル座標へ直し`cellIndexAt`で決める(本体はセルを知らないまま)。
 
 **書き出し**(`src/export/exporter.ts`): 各`Renderer`を`renderToStaticMarkup`で自己完結SVG化→PNG/JPEG/PDFへラスタライズ。非visible・constructionは除外。**KaTeX foreignObjectはcanvas汚染回避のためdata URL+`crossOrigin`**(blob URL不可)、KaTeX CSSの非data-URIフォント参照は除去必須(`exportStyles()`)。PDFは`exportPdfPages`(複数ページ=`addPage`)、`physicalMm`で実寸(mm)/図の縦横比(pt)を切替、canvas上限(≈16.7Mpx)は`cappedScale`で自動抑制。**印刷**(`src/export/print.ts`)=各用紙をPNG化→隠しiframeに`@page{size:mm}`で並べ`print()`。**クリップボードはPNGのみ**(SVGはWord/PowerPointがKaTeXを誤描画)。**ページ移動**=MenuBarのページ選択→`viewportStore.frameWorldRect`で用紙を画面中央へ。
 

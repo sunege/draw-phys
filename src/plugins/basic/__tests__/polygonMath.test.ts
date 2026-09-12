@@ -13,8 +13,8 @@ import {
   polygonSnapPoints,
   scalePolygon,
   segmentsIntersect,
-  worldDeltaToLocal,
 } from '../polygonMath';
+import { worldDeltaToLocal } from '../../../core/geometry';
 
 /** 単位正方形(反時計回りでない画面座標系での時計回り) */
 const square: Point[] = [

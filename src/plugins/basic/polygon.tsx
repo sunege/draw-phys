@@ -1,3 +1,4 @@
+import { worldDeltaToLocal } from '../../core/geometry';
 import type { PhysicsObjectPlugin } from '../../core/plugin';
 import type { Point } from '../../core/types';
 import { PatternDefs } from './PatternDefs';
@@ -22,7 +23,6 @@ import {
   polygonFromWorldPoints,
   polygonSnapPoints,
   scalePolygon,
-  worldDeltaToLocal,
 } from './polygonMath';
 import { StyledStroke } from './StyledStroke';
 

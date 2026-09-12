@@ -148,12 +148,6 @@ export function canClosePolygon(points: PolygonPoints): boolean {
   return points.length >= MIN_POLYGON_VERTICES && isSimplePolygon(points);
 }
 
-/** ワールドの移動量をローカルの移動量へ(回転・スケールを外す) */
-export function worldDeltaToLocal(delta: Point, transform: Transform): Point {
-  const r = rotateVec(delta, -transform.rotation);
-  return { x: r.x / (transform.scaleX || 1), y: r.y / (transform.scaleY || 1) };
-}
-
 /**
  * 頂点ドラッグ。掴んだ頂点だけをローカル移動量ぶん動かす(他の頂点・フレームは不動)。
  * 自己交差する結果になる場合は null(呼び出し側は元の形を保つ)。

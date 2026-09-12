@@ -34,6 +34,12 @@ export function worldToLocal(p: Point, t: Transform): Point {
   return { x: v.x / t.scaleX, y: v.y / t.scaleY };
 }
 
+/** ワールドの移動量をローカルの移動量へ(回転・スケールを外す) */
+export function worldDeltaToLocal(delta: Point, t: Transform): Point {
+  const r = rotateVec(delta, -t.rotation);
+  return { x: r.x / (t.scaleX || 1), y: r.y / (t.scaleY || 1) };
+}
+
 /** 矩形の4隅 */
 export function rectCorners(r: Rect): [Point, Point, Point, Point] {
   return [

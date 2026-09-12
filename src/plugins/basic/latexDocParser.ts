@@ -166,9 +166,12 @@ function renderSegmentHtml(seg: DocSegment): string {
     : html;
 }
 
-/** 直近の変換結果のLRUキャッシュ(Renderer・実測・プレビューの同フレーム二重変換を防ぐ) */
+/**
+ * 直近の変換結果のLRUキャッシュ(Renderer・実測・プレビューの同フレーム二重変換を防ぐ)。
+ * 表はセル単位でこの変換を呼ぶため、1フレームで数十件が入る想定で上限を取る。
+ */
 const htmlCache = new Map<string, string>();
-const HTML_CACHE_MAX = 20;
+const HTML_CACHE_MAX = 200;
 
 /**
  * ソース全体をHTML化する。

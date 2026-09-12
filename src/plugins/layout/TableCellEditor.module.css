@@ -1,0 +1,17 @@
+/* キャンバス上のセル直接入力(foreignObject内のHTML)。表の罫線に重ねて置く */
+.cell {
+  position: absolute;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0 2px;
+  border: 1px solid rgba(43, 125, 233, 0.45);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.92);
+  outline: none;
+}
+
+.cell:focus {
+  border-color: #2b7de9;
+  box-shadow: 0 0 0 1px #2b7de9 inset;
+  background: #ffffff;
+}
