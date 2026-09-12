@@ -1,6 +1,7 @@
 import {
   PATTERN_SIZES,
   patternId,
+  patternLines,
   resolvePatternSize,
   type FillPattern,
   type PatternFillProps,
@@ -17,37 +18,33 @@ function PatternShapes({
   spacing: number;
   lineWidth: number;
 }) {
-  const s = spacing;
-  const line = (x1: number, y1: number, x2: number, y2: number) => (
-    <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={stroke} strokeWidth={lineWidth} />
-  );
-  switch (pattern) {
-    case 'hatch':
-      return line(0, s, s, 0);
-    case 'hatchBack':
-      return line(0, 0, s, s);
-    case 'cross':
-      return (
-        <>
-          {line(0, s, s, 0)}
-          {line(0, 0, s, s)}
-        </>
-      );
-    case 'horizontal':
-      return line(0, s / 2, s, s / 2);
-    case 'vertical':
-      return line(s / 2, 0, s / 2, s);
-    case 'dots':
-      return <circle cx={s / 2} cy={s / 2} r={lineWidth * 1.3} fill={stroke} />;
-    default:
-      return null;
+  if (pattern === 'dots') {
+    return <circle cx={spacing / 2} cy={spacing / 2} r={lineWidth * 1.3} fill={stroke} />;
   }
+  return (
+    <>
+      {patternLines(pattern, spacing, lineWidth).map((l, i) => (
+        <line
+          key={i}
+          x1={l.x1}
+          y1={l.y1}
+          x2={l.x2}
+          y2={l.y2}
+          stroke={stroke}
+          strokeWidth={lineWidth}
+          strokeLinecap="butt"
+        />
+      ))}
+    </>
+  );
 }
 
 /**
  * 塗りパターンの `<defs>`。パターン使用時のみ描画する。
  * 背景は塗り色(通常は白)、模様は線色で描くのでモノクロでも識別できる。
  * userSpaceOnUse なのでオブジェクトの回転・移動にパターンも追従する。
+ * タイルは境界でクリップされるため、斜線は角にかかる隣の線の断片も描いて
+ * つなぎ目で細くならないようにしている(`patternLines`)。
  */
 export function PatternDefs({ props }: { props: PatternFillProps }) {
   const pattern = props.fillPattern ?? 'none';

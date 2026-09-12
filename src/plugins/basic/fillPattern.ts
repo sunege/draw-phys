@@ -109,3 +109,57 @@ export function resolveFillOpacity(props: PatternFillProps): number {
   if ((props.fillPattern ?? 'none') !== 'none') return 1;
   return props.fillOpacity ?? 1;
 }
+
+/** パターンタイル内に描く1本の線分(タイルのローカル座標) */
+export interface PatternLine {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+/**
+ * パターンタイル内に描く線分の一覧。
+ *
+ * タイルの中身はタイル矩形でクリップされるので、斜線を1本だけ描くと
+ * タイルの角にかかる**隣の斜線のはみ出し分**が失われ、タイル境界ごとに
+ * 線がくびれて見える。そこで斜線は角を跨ぐ短い線分も一緒に描き、
+ * タイルを並べたとき線の太さが一定になるようにする。
+ * 縦横線はタイル端でのアンチエイリアスの継ぎ目を消すため少し延長する。
+ */
+export function patternLines(
+  pattern: FillPattern,
+  spacing: number,
+  lineWidth: number,
+): PatternLine[] {
+  const s = spacing;
+  // 角のはみ出しを覆うのに必要な張り出し量(線の半幅×√2 で足りるので余裕をみて線幅)
+  const e = lineWidth;
+  const line = (x1: number, y1: number, x2: number, y2: number): PatternLine => ({ x1, y1, x2, y2 });
+  // 「/」方向: 本線に加え、角(0,0)と(s,s)を通る隣の斜線の断片
+  const slash = (): PatternLine[] => [
+    line(0, s, s, 0),
+    line(-e, e, e, -e),
+    line(s - e, s + e, s + e, s - e),
+  ];
+  // 「\」方向: 本線に加え、角(s,0)と(0,s)を通る隣の斜線の断片
+  const backslash = (): PatternLine[] => [
+    line(0, 0, s, s),
+    line(s - e, -e, s + e, e),
+    line(-e, s - e, e, s + e),
+  ];
+  switch (pattern) {
+    case 'hatch':
+      return slash();
+    case 'hatchBack':
+      return backslash();
+    case 'cross':
+      return [...slash(), ...backslash()];
+    case 'horizontal':
+      return [line(-e, s / 2, s + e, s / 2)];
+    case 'vertical':
+      return [line(s / 2, -e, s / 2, s + e)];
+    default:
+      return [];
+  }
+}
