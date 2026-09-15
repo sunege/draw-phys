@@ -1,5 +1,5 @@
 import { useMemo, useState, type ComponentType } from 'react';
-import { GRAPH_RANGE_TOOL, MIRROR_TOOL, OPERATION_TOOLS, SPLIT_TOOL, TRIM_TOOL } from '../canvas/tools';
+import { FILL_TOOL, GRAPH_RANGE_TOOL, MIRROR_TOOL, OPERATION_TOOLS, SPLIT_TOOL, TRIM_TOOL } from '../canvas/tools';
 import { SHIFT_TOOL_SHORTCUTS, TOOL_SHORTCUTS } from '../canvas/toolShortcuts';
 import { pluginRegistry } from '../core/registry';
 import { LEFT_CFG, useLayoutStore } from '../state/layoutStore';
@@ -33,7 +33,7 @@ const CATEGORY_ORDER = [
  * '編集' はプラグイン(なめらか接続)と操作ツールが混在するため、意図した並びを明示する。
  */
 const ITEM_ORDER: Partial<Record<string, string[]>> = {
-  編集: [TRIM_TOOL, SPLIT_TOOL, 'mech.fillet', MIRROR_TOOL, GRAPH_RANGE_TOOL],
+  編集: [TRIM_TOOL, SPLIT_TOOL, FILL_TOOL, 'mech.fillet', MIRROR_TOOL, GRAPH_RANGE_TOOL],
 };
 
 /** プラグイン図形と操作ツールをカテゴリ別に統合し、CATEGORY_ORDER 順で返す */
@@ -45,7 +45,10 @@ function toolsByCategory(): [string, ToolItem[]][] {
     else map.set(category, [item]);
   };
   for (const [category, plugins] of pluginRegistry.byCategory()) {
-    for (const p of plugins) add(category, { id: p.id, name: p.name, Icon: p.Icon });
+    for (const p of plugins) {
+      if (p.capabilities?.hiddenInToolbox) continue;
+      add(category, { id: p.id, name: p.name, Icon: p.Icon });
+    }
   }
   for (const t of OPERATION_TOOLS) add(t.category, { id: t.id, name: t.name, Icon: t.Icon });
 

@@ -22,6 +22,7 @@ export const TRIM_TOOL = 'trim';
 export const SPLIT_TOOL = 'split';
 export const MIRROR_TOOL = 'mirror';
 export const GRAPH_RANGE_TOOL = 'graphRange';
+export const FILL_TOOL = 'fillRegion';
 
 export const OPERATION_TOOLS: OperationTool[] = [
   {
@@ -49,6 +50,18 @@ export const OPERATION_TOOLS: OperationTool[] = [
         <circle cx="10" cy="12" r="1.5" fill="currentColor" />
         <circle cx="14" cy="12" r="1.5" fill="currentColor" />
         <line x1="14.5" y1="5.5" x2="9.5" y2="18.5" stroke="currentColor" strokeWidth="1.3" strokeDasharray="2.5 2" />
+      </svg>
+    ),
+  },
+  {
+    id: FILL_TOOL,
+    name: '塗りつぶし',
+    category: '編集',
+    Icon: () => (
+      <svg width="20" height="20" viewBox="0 0 24 24">
+        {/* 線で囲まれた扇形の内側が塗られる */}
+        <path d="M4 20 L4 6 A14 14 0 0 1 18 20 Z" fill="currentColor" opacity="0.35" />
+        <path d="M4 20 L4 6 A14 14 0 0 1 18 20 Z" fill="none" stroke="currentColor" strokeWidth="1.6" />
       </svg>
     ),
   },

@@ -7,7 +7,16 @@ import {
   worldToLocal,
 } from '../../core/geometry';
 import type { PhysicsObjectPlugin, TrimPiece } from '../../core/plugin';
+import type { Rect } from '../../core/types';
 import { isFullArc, sweepDelta } from './arc';
+import {
+  arcClosureField,
+  closeArcPath,
+  closureBounds,
+  closureSegments,
+  resolveClosure,
+  type ArcClosure,
+} from './arcClosure';
 import { CenterMark } from './CenterMark';
 import { centerDefaults, centerFields } from './centerFields';
 import {
@@ -16,7 +25,17 @@ import {
   ellipseParamAngle,
   ellipsePointAt,
 } from './ellipseMath';
+import {
+  fillOpacityField,
+  fillPatternField,
+  patternSizeField,
+  resolveFill,
+  resolveFillOpacity,
+  type FillPattern,
+  type PatternSize,
+} from './fillPattern';
 import { lineStyleFieldExtended, type LineStyle } from './lineUtils';
+import { PatternDefs } from './PatternDefs';
 import { StyledStroke } from './StyledStroke';
 
 interface EllipseArcProps {
@@ -29,9 +48,31 @@ interface EllipseArcProps {
   stroke: string;
   strokeWidth: number;
   lineStyle: LineStyle;
+  /** 閉じ方(弓形・扇形にすると塗れる)。未設定=開いた弧 */
+  closure?: ArcClosure;
+  fill?: string;
+  fillPattern?: FillPattern;
+  patternSize?: PatternSize;
+  fillOpacity?: number;
   showCenter: boolean;
   centerStyle: 'cross' | 'dot';
   centerSize: number;
+}
+
+/** 塗りパターン解決用(旧データの未設定propsを既定値で補う) */
+function closedFillProps(props: EllipseArcProps) {
+  return {
+    fill: props.fill ?? '#ffffff',
+    stroke: props.stroke,
+    fillPattern: props.fillPattern ?? 'none',
+    patternSize: props.patternSize,
+    fillOpacity: props.fillOpacity ?? 0,
+  };
+}
+
+function closedEllipseArcBounds(props: EllipseArcProps): Rect {
+  const b = ellipseArcBounds(props.radiusX, props.radiusY, props.startAngle, props.endAngle);
+  return isFullArc(props.startAngle, props.endAngle) ? b : closureBounds(b, resolveClosure(props.closure));
 }
 
 export const ellipseArcPlugin: PhysicsObjectPlugin<EllipseArcProps> = {
@@ -52,6 +93,11 @@ export const ellipseArcPlugin: PhysicsObjectPlugin<EllipseArcProps> = {
     stroke: '#000000',
     strokeWidth: 1,
     lineStyle: 'solid',
+    closure: 'open',
+    fill: '#ffffff',
+    fillPattern: 'none',
+    patternSize: 'medium',
+    fillOpacity: 0,
     ...centerDefaults,
   },
   defaultSize: { width: 100, height: 60 },
@@ -63,38 +109,53 @@ export const ellipseArcPlugin: PhysicsObjectPlugin<EllipseArcProps> = {
     { key: 'stroke', label: '線色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0.5, step: 0.5 },
     lineStyleFieldExtended,
+    arcClosureField,
+    { key: 'fill', label: '塗り色', type: 'color' },
+    fillOpacityField,
+    fillPatternField,
+    patternSizeField,
     ...centerFields,
   ],
-  Renderer: ({ props }) => (
-    <g>
-      <StyledStroke
-        lineStyle={props.lineStyle}
-        bounds={ellipseArcBounds(props.radiusX, props.radiusY, props.startAngle, props.endAngle)}
-      >
-        {isFullArc(props.startAngle, props.endAngle) ? (
-          <ellipse
-            rx={props.radiusX}
-            ry={props.radiusY}
-            fill="none"
-            stroke={props.stroke}
-            strokeWidth={props.strokeWidth}
-          />
-        ) : (
-          <path
-            d={ellipseArcPath(props.radiusX, props.radiusY, props.startAngle, props.endAngle)}
-            fill="none"
-            stroke={props.stroke}
-            strokeWidth={props.strokeWidth}
-            strokeLinecap="round"
-          />
+  Renderer: ({ props }) => {
+    const closure = resolveClosure(props.closure);
+    const fillProps = closedFillProps(props);
+    const fill = closure === 'open' ? 'none' : resolveFill(fillProps);
+    const fillOpacity = closure === 'open' ? undefined : resolveFillOpacity(fillProps);
+    return (
+      <g>
+        {closure !== 'open' && <PatternDefs props={fillProps} />}
+        <StyledStroke lineStyle={props.lineStyle} bounds={closedEllipseArcBounds(props)}>
+          {isFullArc(props.startAngle, props.endAngle) ? (
+            <ellipse
+              rx={props.radiusX}
+              ry={props.radiusY}
+              fill={fill}
+              fillOpacity={fillOpacity}
+              stroke={props.stroke}
+              strokeWidth={props.strokeWidth}
+            />
+          ) : (
+            <path
+              d={closeArcPath(
+                ellipseArcPath(props.radiusX, props.radiusY, props.startAngle, props.endAngle),
+                closure,
+              )}
+              fill={fill}
+              fillOpacity={fillOpacity}
+              stroke={props.stroke}
+              strokeWidth={props.strokeWidth}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          )}
+        </StyledStroke>
+        {props.showCenter && (
+          <CenterMark color={props.stroke} style={props.centerStyle} size={props.centerSize} />
         )}
-      </StyledStroke>
-      {props.showCenter && (
-        <CenterMark color={props.stroke} style={props.centerStyle} size={props.centerSize} />
-      )}
-    </g>
-  ),
-  getBounds: (props) => ellipseArcBounds(props.radiusX, props.radiusY, props.startAngle, props.endAngle),
+      </g>
+    );
+  },
+  getBounds: (props) => closedEllipseArcBounds(props),
   getSnapPoints: (props) => {
     const delta = sweepDelta(props.startAngle, props.endAngle);
     return [
@@ -103,6 +164,16 @@ export const ellipseArcPlugin: PhysicsObjectPlugin<EllipseArcProps> = {
       ellipsePointAt(props.radiusX, props.radiusY, props.startAngle + delta),
       ellipsePointAt(props.radiusX, props.radiusY, props.startAngle + delta / 2),
     ];
+  },
+  // 弓形・扇形の閉じる辺(弦/半径)。スナップ・拘束の相手になる
+  getSegments: (props) => {
+    if (isFullArc(props.startAngle, props.endAngle)) return [];
+    const delta = sweepDelta(props.startAngle, props.endAngle);
+    return closureSegments(
+      ellipsePointAt(props.radiusX, props.radiusY, props.startAngle),
+      ellipsePointAt(props.radiusX, props.radiusY, props.startAngle + delta),
+      resolveClosure(props.closure),
+    );
   },
   getEllipse: (props) => ({
     center: { x: 0, y: 0 },
@@ -142,7 +213,9 @@ export const ellipseArcPlugin: PhysicsObjectPlugin<EllipseArcProps> = {
     return props;
   },
   // トリム: 残す各区間[fromDeg,toDeg]を新しい楕円弧として作り直す(掃引の一部を残す)
-  trim(props, transform, keeps) {
+  trim(props, transform, keeps, pick) {
+    // 閉じる辺(弦・半径)は切れない(弧の角度だけで形が決まるため)
+    if (pick?.kind === 'segment') return null;
     const pieces: TrimPiece[] = [];
     for (const keep of keeps) {
       if (keep.kind !== 'arc') continue;

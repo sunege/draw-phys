@@ -30,6 +30,7 @@ import {
 import { partDragResult } from '../core/plugin';
 import type { AnyPlugin, EdgePick, SegmentPick } from '../core/plugin';
 import { pluginRegistry } from '../core/registry';
+import { regionPathData } from '../core/regionPath';
 import type { ObjectRef, Point, Rect, Transform } from '../core/types';
 import {
   chooseClipboardTarget,
@@ -70,6 +71,7 @@ import {
 } from './snapping';
 import {
   COINCIDENT_TOOL,
+  FILL_TOOL,
   GRAPH_RANGE_TOOL,
   MIDPOINT_TOOL,
   MIRROR_TOOL,
@@ -82,6 +84,7 @@ import {
 } from './tools';
 import { KEY_TO_TOOL, SHIFT_KEY_TO_TOOL } from './toolShortcuts';
 import { computeGroupScaleFactor, groupScaleAnchor, scaleObjectAbout } from './groupScaleMath';
+import { createFillRegionObject, createRegionFinder } from './regionFill';
 import { computeTrimKeeps } from './trim';
 import { ellipseParamAngle } from './trimMath';
 import {
@@ -93,6 +96,12 @@ import {
   type HandleDir,
 } from './transformMath';
 import styles from './CanvasStage.module.css';
+
+/** 塗りつぶしツールの領域探索(平面グラフをobjects参照ごとにキャッシュ) */
+const findRegion = createRegionFinder(pluginRegistry);
+
+/** 塗りつぶしで「つながっている」とみなす端点の隙間(画面px) */
+const FILL_GAP_PX = 3;
 
 type DragState =
   | { mode: 'pan'; lastX: number; lastY: number; startX: number; startY: number; rightClick: boolean }
@@ -687,6 +696,8 @@ export function CanvasStage() {
   const [panning, setPanning] = useState(false);
   const [guides, setGuides] = useState<Guides>({});
   const [marquee, setMarquee] = useState<Rect | null>(null);
+  /** 塗りつぶしツールでカーソル下の領域のプレビュー(ワールド座標のSVGパス) */
+  const [fillPreview, setFillPreview] = useState<string | null>(null);
   // ホバー中に「クリックすると選択される対象」を薄く縁取るためのワールド矩形
   const [hoverRect, setHoverRect] = useState<Rect | null>(null);
   // グラフ範囲ツールのドラッグ矩形(マーキーと区別するため別state・別色)
@@ -1068,6 +1079,8 @@ export function CanvasStage() {
       setHint({ title: 'トリム', message: '切り取る線・円弧・円のエッジをクリック（Escで終了）' });
     } else if (activeTool === SPLIT_TOOL) {
       setHint({ title: '分割', message: '交点で分けたい線・円弧・円のエッジをクリック（Escで終了）' });
+    } else if (activeTool === FILL_TOOL) {
+      setHint({ title: '塗りつぶし', message: '線や円弧で囲まれた領域をクリック（Escで終了）' });
     } else if (activeTool === GRAPH_RANGE_TOOL) {
       setHint({ title: 'グラフ範囲', message: 'グラフ内をドラッグして表示範囲を指定（Escで終了）' });
     } else {
@@ -1540,6 +1553,23 @@ export function CanvasStage() {
       return;
     }
 
+    // 塗りつぶしモード: クリック点を囲む領域を塗り領域オブジェクトにし、境界の線より背面へ置く。
+    // 選択中の塗り領域があれば色を引き継ぐ(作った領域が選択される=色を変えて続けて塗れる)
+    if (activeTool === FILL_TOOL) {
+      const region = findRegion(doc.objects, world, FILL_GAP_PX / zoom);
+      if (!region) {
+        useToastStore
+          .getState()
+          .showToast('閉じた領域が見つかりません（線どうしの隙間・はみ出しを確認してください）', 'error');
+        return;
+      }
+      const styleFrom = doc.selection.length === 1 ? doc.objects[doc.selection[0]] : undefined;
+      const obj = createFillRegionObject(pluginRegistry, region, styleFrom);
+      if (obj) doc.addObjectBelow(obj, region.owners);
+      setFillPreview(null);
+      return;
+    }
+
     // グラフ範囲モード: zoomToRect を実装したオブジェクトの上でドラッグして表示範囲を指定
     if (activeTool === GRAPH_RANGE_TOOL) {
       const hit = (e.target as Element).closest('[data-object-id]');
@@ -1977,6 +2007,15 @@ export function CanvasStage() {
         setGuides({ marker: snapped.marker, vertex: snapped.vertex });
       }
       updateHover(e);
+      if (activeTool === FILL_TOOL && !spaceHeld) {
+        const region = findRegion(
+          useDocumentStore.getState().objects,
+          worldFromEvent(e),
+          FILL_GAP_PX / useViewportStore.getState().zoom,
+        );
+        const d = region ? regionPathData(region.loops) : null;
+        setFillPreview((prev) => (prev === d ? prev : d));
+      }
       return;
     }
 
@@ -2766,6 +2805,16 @@ export function CanvasStage() {
           </g>
         )}
         <g pointerEvents="none">
+          {activeTool === FILL_TOOL && fillPreview && (
+            <path
+              d={fillPreview}
+              fillRule="evenodd"
+              fill="rgba(43, 125, 233, 0.18)"
+              stroke="#2b7de9"
+              strokeWidth={1.5 / zoom}
+              strokeDasharray={`${4 / zoom} ${3 / zoom}`}
+            />
+          )}
           {hoverRect && (
             <rect
               x={hoverRect.x}

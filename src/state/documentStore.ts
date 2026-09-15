@@ -70,6 +70,11 @@ interface DocumentState {
   /** 複数オブジェクトを1履歴エントリで追加し、選択する(貼り付け用) */
   addObjects(objs: SceneObject[]): void;
   /**
+   * オブジェクトを belowIds のうち最も背面にあるものの直下へ追加し、選択する(1履歴エントリ)。
+   * 塗り領域を境界の線より背面に置くのに使う。全オブジェクトのzIndexを振り直す。
+   */
+  addObjectBelow(obj: SceneObject, belowIds: string[]): void;
+  /**
    * オブジェクトを追加すると同時に、既存の母線(線分)を接点まで詰める(1履歴エントリ)。
    * pick-segments 生成(フィレット)で、角の直線部を消すのに使う。
    * trim 対象は setFromEndpoints を持つプラグインのみ(三角形の斜面などはスキップ)。
@@ -208,6 +213,22 @@ export const useDocumentStore = create<DocumentState>((set, get) => {
         nextZIndex: Math.max(get().nextZIndex, maxZ) + 1,
         selection: objs.map((o) => o.id),
       });
+    },
+
+    addObjectBelow(obj, belowIds) {
+      const below = new Set(belowIds);
+      const order = sortedObjects(get().objects).map((o) => o.id);
+      const idx = order.findIndex((id) => below.has(id));
+      const next = [...order];
+      next.splice(idx === -1 ? order.length : idx, 0, obj.id);
+      mutate((draft) => {
+        draft[obj.id] = obj;
+        next.forEach((id, i) => {
+          const o = draft[id];
+          if (o) o.zIndex = i + 1;
+        });
+      });
+      set({ nextZIndex: next.length + 1, selection: [obj.id] });
     },
 
     addObjectWithHostTrims(obj, trims) {

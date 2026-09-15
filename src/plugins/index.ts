@@ -8,6 +8,7 @@ import { circlePlugin } from './basic/circle';
 import { curvedArrowPlugin } from './basic/curvedArrow';
 import { ellipsePlugin } from './basic/ellipse';
 import { ellipseArcPlugin } from './basic/ellipseArc';
+import { fillRegionPlugin } from './basic/fillRegion';
 import { helixPlugin } from './basic/helix';
 import { latexPlugin } from './basic/latex';
 import { latexDocPlugin } from './basic/latexDoc';
@@ -80,6 +81,7 @@ export function registerStandardPlugins(): void {
   pluginRegistry.register(arcPlugin);
   pluginRegistry.register(ellipsePlugin);
   pluginRegistry.register(ellipseArcPlugin);
+  pluginRegistry.register(fillRegionPlugin);
   pluginRegistry.register(arrowPlugin);
   pluginRegistry.register(blockArrowPlugin);
   pluginRegistry.register(curvedArrowPlugin);

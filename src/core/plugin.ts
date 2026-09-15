@@ -121,6 +121,11 @@ export interface PluginCapabilities {
    * ON のとき色付き点線で描かれ書き出しから除外される(線・円が対象)。
    */
   construction?: boolean;
+  /**
+   * ツールボックスに出さない(操作ツールの結果としてだけ作られる図形。塗り領域など)。
+   * 配置ツールを持たないだけで、選択・編集・保存・書き出しは通常どおり。
+   */
+  hiddenInToolbox?: boolean;
 }
 
 /** 単一選択中に出す追加ドラッグハンドル(getParts) */

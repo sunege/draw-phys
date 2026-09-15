@@ -8,9 +8,27 @@ import {
 } from '../../core/geometry';
 import type { PhysicsObjectPlugin, TrimPiece } from '../../core/plugin';
 import type { Point, Rect } from '../../core/types';
+import {
+  arcClosureField,
+  closeArcPath,
+  closureBounds,
+  closureSegments,
+  resolveClosure,
+  type ArcClosure,
+} from './arcClosure';
 import { CenterMark } from './CenterMark';
 import { centerDefaults, centerFields } from './centerFields';
+import {
+  fillOpacityField,
+  fillPatternField,
+  patternSizeField,
+  resolveFill,
+  resolveFillOpacity,
+  type FillPattern,
+  type PatternSize,
+} from './fillPattern';
 import { lineStyleFieldExtended, type LineStyle } from './lineUtils';
+import { PatternDefs } from './PatternDefs';
 import { StyledStroke } from './StyledStroke';
 
 interface ArcProps {
@@ -22,6 +40,12 @@ interface ArcProps {
   stroke: string;
   strokeWidth: number;
   lineStyle: LineStyle;
+  /** 閉じ方(弓形・扇形にすると塗れる)。未設定=開いた弧 */
+  closure?: ArcClosure;
+  fill?: string;
+  fillPattern?: FillPattern;
+  patternSize?: PatternSize;
+  fillOpacity?: number;
   showCenter: boolean;
   centerStyle: 'cross' | 'dot';
   centerSize: number;
@@ -74,6 +98,22 @@ export function arcBounds(radius: number, startAngle: number, endAngle: number):
   return { x: minX, y: minY, width: Math.max(...xs) - minX, height: Math.max(...ys) - minY };
 }
 
+/** 塗りパターン解決用(旧データの未設定propsを既定値で補う) */
+function closedFillProps(props: ArcProps) {
+  return {
+    fill: props.fill ?? '#ffffff',
+    stroke: props.stroke,
+    fillPattern: props.fillPattern ?? 'none',
+    patternSize: props.patternSize,
+    fillOpacity: props.fillOpacity ?? 0,
+  };
+}
+
+function closedArcBounds(props: ArcProps): Rect {
+  const b = arcBounds(props.radius, props.startAngle, props.endAngle);
+  return isFullArc(props.startAngle, props.endAngle) ? b : closureBounds(b, resolveClosure(props.closure));
+}
+
 export const arcPlugin: PhysicsObjectPlugin<ArcProps> = {
   id: 'core.arc',
   version: 1,
@@ -91,6 +131,11 @@ export const arcPlugin: PhysicsObjectPlugin<ArcProps> = {
     stroke: '#000000',
     strokeWidth: 1,
     lineStyle: 'solid',
+    closure: 'open',
+    fill: '#ffffff',
+    fillPattern: 'none',
+    patternSize: 'medium',
+    fillOpacity: 0,
     ...centerDefaults,
   },
   defaultSize: { width: 100, height: 100 },
@@ -101,37 +146,47 @@ export const arcPlugin: PhysicsObjectPlugin<ArcProps> = {
     { key: 'stroke', label: '線色', type: 'color' },
     { key: 'strokeWidth', label: '線幅', type: 'number', min: 0.5, step: 0.5 },
     lineStyleFieldExtended,
+    arcClosureField,
+    { key: 'fill', label: '塗り色', type: 'color' },
+    fillOpacityField,
+    fillPatternField,
+    patternSizeField,
     ...centerFields,
   ],
-  Renderer: ({ props }) => (
-    <g>
-      <StyledStroke
-        lineStyle={props.lineStyle}
-        bounds={arcBounds(props.radius, props.startAngle, props.endAngle)}
-      >
-        {isFullArc(props.startAngle, props.endAngle) ? (
-          <circle
-            r={props.radius}
-            fill="none"
-            stroke={props.stroke}
-            strokeWidth={props.strokeWidth}
-          />
-        ) : (
-          <path
-            d={arcPath(props.radius, props.startAngle, props.endAngle)}
-            fill="none"
-            stroke={props.stroke}
-            strokeWidth={props.strokeWidth}
-            strokeLinecap="round"
-          />
+  Renderer: ({ props }) => {
+    const closure = resolveClosure(props.closure);
+    const fillProps = closedFillProps(props);
+    return (
+      <g>
+        {closure !== 'open' && <PatternDefs props={fillProps} />}
+        <StyledStroke lineStyle={props.lineStyle} bounds={closedArcBounds(props)}>
+          {isFullArc(props.startAngle, props.endAngle) ? (
+            <circle
+              r={props.radius}
+              fill={closure === 'open' ? 'none' : resolveFill(fillProps)}
+              fillOpacity={closure === 'open' ? undefined : resolveFillOpacity(fillProps)}
+              stroke={props.stroke}
+              strokeWidth={props.strokeWidth}
+            />
+          ) : (
+            <path
+              d={closeArcPath(arcPath(props.radius, props.startAngle, props.endAngle), closure)}
+              fill={closure === 'open' ? 'none' : resolveFill(fillProps)}
+              fillOpacity={closure === 'open' ? undefined : resolveFillOpacity(fillProps)}
+              stroke={props.stroke}
+              strokeWidth={props.strokeWidth}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          )}
+        </StyledStroke>
+        {props.showCenter && (
+          <CenterMark color={props.stroke} style={props.centerStyle} size={props.centerSize} />
         )}
-      </StyledStroke>
-      {props.showCenter && (
-        <CenterMark color={props.stroke} style={props.centerStyle} size={props.centerSize} />
-      )}
-    </g>
-  ),
-  getBounds: (props) => arcBounds(props.radius, props.startAngle, props.endAngle),
+      </g>
+    );
+  },
+  getBounds: (props) => closedArcBounds(props),
   getSnapPoints: (props) => {
     const delta = sweepDelta(props.startAngle, props.endAngle);
     return [
@@ -140,6 +195,16 @@ export const arcPlugin: PhysicsObjectPlugin<ArcProps> = {
       pointAt(props.radius, props.startAngle + delta),
       pointAt(props.radius, props.startAngle + delta / 2),
     ];
+  },
+  // 弓形・扇形の閉じる辺(弦/半径)。スナップ・拘束の相手になる
+  getSegments: (props) => {
+    if (isFullArc(props.startAngle, props.endAngle)) return [];
+    const delta = sweepDelta(props.startAngle, props.endAngle);
+    return closureSegments(
+      pointAt(props.radius, props.startAngle),
+      pointAt(props.radius, props.startAngle + delta),
+      resolveClosure(props.closure),
+    );
   },
   getCircle: (props) => ({
     center: { x: 0, y: 0 },
@@ -164,7 +229,9 @@ export const arcPlugin: PhysicsObjectPlugin<ArcProps> = {
     return props;
   },
   // トリム: 残す各区間[fromDeg,toDeg]を新しい円弧として作り直す(掃引の一部を残す)
-  trim(props, transform, keeps) {
+  trim(props, transform, keeps, pick) {
+    // 閉じる辺(弦・半径)は切れない(弧の角度だけで形が決まるため)
+    if (pick?.kind === 'segment') return null;
     const pieces: TrimPiece[] = [];
     for (const keep of keeps) {
       if (keep.kind !== 'arc') continue;

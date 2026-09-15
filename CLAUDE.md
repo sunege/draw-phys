@@ -43,6 +43,8 @@ npm test       # vitest run
 
 **多角形**(`core.polygon`, `polygonMath.ts`)は頂点列propsを持つ箱型。頂点/辺ハンドル=`getParts`/`movePart`、全頂点+辺中点が`getSnapPoints`(頂点が先頭=`pointIndex`が安定)。**ローカル原点は生成時の重心のまま再センタリングしない**——一致拘束の`localAnchor`はローカル座標なので、フレームが動くと拘束済みの頂点が別の点にすり替わる。自己交差(`isSimplePolygon`)する作成クリック・ドラッグは拒否して直前の形を保つ。
 
+**塗りつぶし**(操作ツール`FILL_TOOL`, `U`)=バケツ。画素でなく幾何: `regionMath.ts`(純粋)が可視オブジェクトの`getSegments/getCircle/getEllipse`(=`worldCurves.ts`の`objectWorldCurves`、トリムと共有)を交点で切って平面グラフ化→各頂点で辺を角度順に並べ面を辿る(twinの**1つ手前**=最も鋭い右折。y下向きで有界面は符号付き面積>0)→クリック点を含む最小面+内側の別成分を穴(evenodd)。端点の隙間は`FILL_GAP_PX/zoom`で吸着、行き止まり枝は刈る、用紙枠は除外、補助線は境界に含む。結果は`core.fillRegion`(`hiddenInToolbox`, 輪郭=直線+円弧列`RegionLoop`=`core/regionPath.ts`)を`addObjectBelow`で境界の最背面の直下へ。**スナップショット**(境界に追従しない)。平面グラフは`objects`参照ごとにキャッシュ(`regionFill.ts`)。円弧/楕円弧は`closure`(open/chord/sector, `arcClosure.ts`)で弓形・扇形+塗り、閉じる辺を`getSegments`で公開(その辺のトリムは`null`=no-op)。
+
 回転(`transformMath.ts`): 表示角「水平右=0°・反時計回り正」、内部rotation(画面時計回り正)と`toDisplayAngle`/`fromDisplayAngle`で符号反転。回転ハンドルは任意軸ピボット対応(一時状態・非永続)。
 
 ### 参照/拘束レイヤー（refs）

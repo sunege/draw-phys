@@ -1,5 +1,6 @@
 import {
   COINCIDENT_TOOL,
+  FILL_TOOL,
   MIDPOINT_TOOL,
   PARALLEL_TOOL,
   PERPENDICULAR_TOOL,
@@ -28,6 +29,7 @@ export const TOOL_SHORTCUTS: Record<string, string> = {
   'core.latexDoc': 'd',
   [TRIM_TOOL]: 'x',
   [SPLIT_TOOL]: 'z',
+  [FILL_TOOL]: 'u',
 };
 
 /** キー→ツールidの逆引き(修飾キーなし) */
